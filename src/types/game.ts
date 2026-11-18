@@ -1,0 +1,94 @@
+export type Language = 'en' | 'ar';
+
+export type TimeOfDay = 'sunset' | 'day' | 'night';
+
+export type VehicleKind = 'sports' | 'muscle' | 'police' | 'taxi' | 'suv' | 'bike';
+
+export type WeaponId = 'melee' | 'pistol' | 'smg' | 'shotgun' | 'rifle' | 'rpg';
+
+export type RadioStationId = 'off' | 'cairo' | 'synthwave' | 'funk';
+
+export interface CharacterProfile {
+  id: 'kimo' | 'nour' | 'tarek';
+  name: { en: string; ar: string };
+  title: { en: string; ar: string };
+  bio: { en: string; ar: string };
+  perk: { en: string; ar: string };
+  portraitUrl: string;
+  accentHex: string;
+  outfitColors: {
+    jacket: number;
+    shirt: number;
+    pants: number;
+    skin: number;
+    hair: number;
+    sunglasses: boolean;
+  };
+  stats: {
+    speedMultiplier: number;
+    handlingMultiplier: number;
+    maxHealth: number;
+    cashBonus: number;
+  };
+  displayStats: {
+    speed: number;
+    style: number;
+    toughness: number;
+  };
+}
+
+export interface MissionInfo {
+  id: string;
+  title: { en: string; ar: string };
+  objective: { en: string; ar: string };
+  progress: number;
+  total: number;
+  timeLeft: number;
+  rewardCash: number;
+}
+
+export interface MinimapBlip {
+  x: number;
+  z: number;
+  type: 'vehicle' | 'police' | 'mission' | 'pickup' | 'target' | 'hostile';
+}
+
+export interface DialogueSubtitle {
+  speaker: string;
+  text: string;
+  color: string;
+}
+
+export interface HudSnapshot {
+  health: number;
+  maxHealth: number;
+  armor: number;
+  cash: number;
+  respect: number;
+  wantedStars: number;
+  inVehicle: boolean;
+  vehicleName: string;
+  vehicleKind: VehicleKind | null;
+  vehicleSpeedKmh: number;
+  vehicleHp: number;
+  activeWeapon: WeaponId;
+  radioStation: RadioStationId;
+  timeOfDay: TimeOfDay;
+  activeMission: MissionInfo | null;
+  availableMissionPrompt: { title: { en: string; ar: string }; reward: number } | null;
+  nearbyVehiclePrompt: string | null;
+  bannerMessage: { text: string; tone: 'gold' | 'info' | 'alert' | 'success' } | null;
+  subtitle: DialogueSubtitle | null;
+  playerX: number;
+  playerZ: number;
+  playerYaw: number;
+  blips: MinimapBlip[];
+  buildingsForMap: Array<{ x: number; z: number; w: number; d: number; isHouse?: boolean }>;
+  isWasted: boolean;
+  stats: {
+    missionsDone: number;
+    carsDriven: number;
+    takedowns: number;
+    stuntsLanded: number;
+  };
+}
