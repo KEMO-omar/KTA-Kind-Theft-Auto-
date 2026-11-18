@@ -1,24 +1,28 @@
 import React, { useEffect, useState } from 'react';
-import { Volume2, VolumeX, Globe, ChevronRight, Shield, Zap, Sparkles } from 'lucide-react';
+import { Volume2, VolumeX, Globe, ChevronRight, Shield, Zap, Sparkles, PlayCircle } from 'lucide-react';
 import { CHARACTERS, INTRO_BACKDROP_URL } from '../data/characters';
 import { STRINGS } from '../data/i18n';
-import { CharacterProfile, Language } from '../types/game';
+import { CharacterProfile, Language, SavedGameState } from '../types/game';
 import { soundEngine } from '../game/audio';
 
 interface IntroScreenProps {
   language: Language;
+  savedGame: SavedGameState | null;
   onLanguageChange: (lang: Language) => void;
   onStartGame: (character: CharacterProfile) => void;
+  onContinueSave: () => void;
 }
 
 export const IntroScreen: React.FC<IntroScreenProps> = ({
   language,
+  savedGame,
   onLanguageChange,
   onStartGame,
+  onContinueSave,
 }) => {
   const [stage, setStage] = useState<'cinematic' | 'select'>('cinematic');
   const [slideIndex, setSlideIndex] = useState(0);
-  const [selectedId, setSelectedId] = useState<CharacterProfile['id']>('kimo');
+  const [selectedId, setSelectedId] = useState<CharacterProfile['id']>(savedGame?.characterId ?? 'kimo');
   const [muted, setMuted] = useState(soundEngine.isMuted());
 
   const t = STRINGS[language];
@@ -26,10 +30,15 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
 
   const slides = [
     { image: INTRO_BACKDROP_URL, caption: t.presents },
-    { image: CHARACTERS[0].portraitUrl, caption: `${CHARACTERS[0].name[language]} · ${CHARACTERS[0].title[language]}` },
-    { image: CHARACTERS[1].portraitUrl, caption: `${CHARACTERS[1].name[language]} · ${CHARACTERS[1].title[language]}` },
-    { image: CHARACTERS[2].portraitUrl, caption: `${CHARACTERS[2].name[language]} · ${CHARACTERS[2].title[language]}` },
+    ...CHARACTERS.map((char) => ({
+      image: char.portraitUrl,
+      caption: `${char.name[language]} · ${char.title[language]}`,
+    })),
   ];
+
+  const savedHero = savedGame
+    ? CHARACTERS.find((c) => c.id === savedGame.characterId) ?? CHARACTERS[0]
+    : null;
 
   useEffect(() => {
     if (stage !== 'cinematic') return;
@@ -118,7 +127,22 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
           <p className="text-base sm:text-lg text-neutral-200 font-medium max-w-xl mb-8 text-balance">
             {t.tagline}
           </p>
-          <div className="flex flex-wrap items-center justify-center gap-4">
+          <div className="flex flex-wrap items-center justify-center gap-3.5">
+            {savedGame && savedHero && (
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.unlock();
+                  onContinueSave();
+                }}
+                className="flex items-center gap-2.5 px-6 py-3.5 bg-teal-500 hover:bg-teal-400 text-neutral-950 font-display text-base sm:text-lg tracking-wide font-bold rounded-lg transition-colors shadow-lg cursor-pointer whitespace-nowrap"
+              >
+                <PlayCircle className="w-5 h-5" />
+                <span>
+                  {t.continueSaved} ({savedHero.name[language]} · {t.savedInfoPrefix} {savedGame.level})
+                </span>
+              </button>
+            )}
             <button
               type="button"
               onClick={handleEnterSelect}
@@ -207,8 +231,8 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
 
       {/* Character Roster Grid */}
       <main className="relative z-10 flex-1 max-w-6xl w-full mx-auto px-6 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-        {/* 3 Character Cards */}
-        <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* 4 Character Cards */}
+        <div className="lg:col-span-7 grid grid-cols-2 sm:grid-cols-4 gap-3">
           {CHARACTERS.map((char) => {
             const active = char.id === selectedId;
             return (
@@ -216,7 +240,7 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
                 key={char.id}
                 type="button"
                 onClick={() => setSelectedId(char.id)}
-                className={`group relative rounded-xl overflow-hidden border text-start transition-transform duration-200 cursor-pointer flex flex-col justify-end min-h-[290px] sm:min-h-[380px] ${
+                className={`group relative rounded-xl overflow-hidden border text-start transition-transform duration-200 cursor-pointer flex flex-col justify-end min-h-[220px] sm:min-h-[360px] ${
                   active
                     ? 'border-amber-400 ring-2 ring-amber-400/50 scale-[1.01]'
                     : 'border-white/15 hover:border-white/35'
@@ -228,12 +252,12 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
                   referrerPolicy="no-referrer"
                   className="absolute inset-0 w-full h-full object-cover object-top transition-transform duration-300 group-hover:scale-105"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/35 to-transparent" />
-                <div className="relative z-10 p-4">
-                  <div className="text-xs font-semibold text-amber-400 mb-0.5">
+                <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/40 to-transparent" />
+                <div className="relative z-10 p-3">
+                  <div className="text-[11px] font-semibold text-amber-400 mb-0.5 leading-tight">
                     {char.title[language]}
                   </div>
-                  <div className="font-display text-2xl font-bold text-white">
+                  <div className="font-display text-lg sm:text-xl font-bold text-white">
                     {char.name[language]}
                   </div>
                 </div>
@@ -289,17 +313,34 @@ export const IntroScreen: React.FC<IntroScreenProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              soundEngine.unlock();
-              onStartGame(selectedChar);
-            }}
-            className="w-full py-3.5 px-6 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-display text-lg font-bold tracking-wide rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <span>{t.selectAndPlay}</span>
-            <ChevronRight className={`w-5 h-5 ${isRtl ? 'rotate-180' : ''}`} />
-          </button>
+          <div className="flex flex-col gap-2.5">
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.unlock();
+                onStartGame(selectedChar);
+              }}
+              className="w-full py-3.5 px-6 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-display text-lg font-bold tracking-wide rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <span>{t.selectAndPlay}</span>
+              <ChevronRight className={`w-5 h-5 ${isRtl ? 'rotate-180' : ''}`} />
+            </button>
+            {savedGame && savedHero && (
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.unlock();
+                  onContinueSave();
+                }}
+                className="w-full py-2.5 px-4 bg-neutral-800 hover:bg-neutral-700 text-teal-300 border border-teal-500/40 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <PlayCircle className="w-4 h-4" />
+                <span>
+                  {t.continueSaved} · {savedHero.name[language]} ({t.savedInfoPrefix} {savedGame.level} · ${savedGame.cash.toLocaleString()})
+                </span>
+              </button>
+            )}
+          </div>
         </div>
       </main>
     </div>

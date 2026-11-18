@@ -1,30 +1,55 @@
-import React from 'react';
-import { Globe, Play, RotateCcw, Users, Sun, Sunset, Moon } from 'lucide-react';
+import React, { useState } from 'react';
+import { FolderOpen, Globe, Moon, Play, RotateCcw, Save, Sun, Sunset, Trash2, Users } from 'lucide-react';
 import { HudSnapshot, Language, TimeOfDay } from '../types/game';
 import { STRINGS } from '../data/i18n';
+import { getLevelRankTitle } from '../game/saveSystem';
 import { MinimapCanvas } from './MinimapCanvas';
 
 interface PauseMenuProps {
   hud: HudSnapshot;
   language: Language;
+  hasSave: boolean;
   onLanguageChange: (lang: Language) => void;
   onResume: () => void;
   onChangeCharacter: () => void;
   onRestart: () => void;
   onSetTimeOfDay: (mode: TimeOfDay) => void;
+  onSaveNow: () => boolean;
+  onLoadSave: () => boolean;
+  onClearSave: () => void;
 }
 
 export const PauseMenu: React.FC<PauseMenuProps> = ({
   hud,
   language,
+  hasSave,
   onLanguageChange,
   onResume,
   onChangeCharacter,
   onRestart,
   onSetTimeOfDay,
+  onSaveNow,
+  onLoadSave,
+  onClearSave,
 }) => {
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const t = STRINGS[language];
   const isRtl = language === 'ar';
+
+  const handleSave = () => {
+    const ok = onSaveNow();
+    if (ok) setSaveNotice(t.savedToast);
+  };
+
+  const handleLoad = () => {
+    const ok = onLoadSave();
+    if (ok) setSaveNotice(t.loadedToast);
+  };
+
+  const handleClear = () => {
+    onClearSave();
+    setSaveNotice(t.clearedToast);
+  };
 
   return (
     <div
@@ -35,7 +60,12 @@ export const PauseMenu: React.FC<PauseMenuProps> = ({
         {/* Left Column: Full City Map & Session Stats */}
         <div className="lg:col-span-6 flex flex-col items-center justify-between gap-4">
           <div className="w-full flex items-center justify-between">
-            <h2 className="font-display text-2xl font-bold text-amber-400">{t.cityMap}</h2>
+            <div>
+              <h2 className="font-display text-2xl font-bold text-amber-400">{t.cityMap}</h2>
+              <div className="text-xs text-cyan-300 font-semibold font-hud tabular-nums">
+                {t.levelLabel} {hud.level} · {getLevelRankTitle(hud.level, language)}
+              </div>
+            </div>
             <button
               type="button"
               onClick={() => onLanguageChange(language === 'en' ? 'ar' : 'en')}
@@ -63,11 +93,11 @@ export const PauseMenu: React.FC<PauseMenuProps> = ({
           </div>
         </div>
 
-        {/* Right Column: Controls, Atmosphere & Actions */}
-        <div className="lg:col-span-6 flex flex-col justify-between gap-6">
+        {/* Right Column: Controls, Save/Load, Atmosphere & Actions */}
+        <div className="lg:col-span-6 flex flex-col justify-between gap-5">
           <div>
             <h3 className="font-display text-xl font-bold text-white mb-3">{t.controlsGuide}</h3>
-            <div className="space-y-2 mb-6">
+            <div className="space-y-1.5 mb-5">
               {t.controlsList.map((c) => (
                 <div
                   key={c.key}
@@ -79,7 +109,42 @@ export const PauseMenu: React.FC<PauseMenuProps> = ({
               ))}
             </div>
 
+            {/* Save / Load Progress Controls */}
             <div className="mb-4">
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/35 border border-emerald-400/40 text-emerald-300 text-xs font-semibold cursor-pointer"
+                >
+                  <Save className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">{t.saveNow}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLoad}
+                  disabled={!hasSave}
+                  className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-sky-600/20 hover:bg-sky-600/35 disabled:opacity-40 disabled:cursor-not-allowed border border-sky-400/40 text-sky-300 text-xs font-semibold cursor-pointer"
+                >
+                  <FolderOpen className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">{t.loadSave}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClear}
+                  disabled={!hasSave}
+                  className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg bg-rose-600/15 hover:bg-rose-600/30 disabled:opacity-40 disabled:cursor-not-allowed border border-rose-400/35 text-rose-300 text-xs font-semibold cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">{t.clearSave}</span>
+                </button>
+              </div>
+              {saveNotice && (
+                <div className="mt-2 text-xs text-emerald-400 font-medium text-center">{saveNotice}</div>
+              )}
+            </div>
+
+            <div className="mb-2">
               <div className="text-xs font-semibold text-neutral-400 mb-2">{t.timeOfDayLabel}</div>
               <div className="grid grid-cols-3 gap-2">
                 {[
@@ -136,3 +201,4 @@ export const PauseMenu: React.FC<PauseMenuProps> = ({
     </div>
   );
 };
+

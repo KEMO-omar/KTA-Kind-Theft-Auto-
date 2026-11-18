@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
   Car,
+  ChevronLeft,
+  ChevronRight,
   Crosshair,
   Flame,
   Gamepad2,
@@ -13,6 +15,8 @@ import {
   Sun,
   Sunset,
   Swords,
+  Users,
+  Utensils,
   Volume2,
   VolumeX,
   Zap,
@@ -28,30 +32,41 @@ interface GameHudProps {
   character: CharacterProfile;
   language: Language;
   onPause: () => void;
-  onSelectWeapon: (w: WeaponId) => void;
-  onCycleWeapon: () => void;
+  onCycleWeapon: (dir: 1 | -1) => void;
   onCycleRadio: () => void;
   onCycleTime: () => void;
+  onToggleBuddy: () => void;
   onRespawn: () => void;
   onToggleVehicle: () => void;
   onStartMission: () => void;
+  onBuyFood: () => void;
   onTouchMove: (x: number, y: number, boost: boolean) => void;
   onTouchFire: (firing: boolean) => void;
   onTouchJumpOrDrift: (active: boolean) => void;
 }
+
+const WEAPON_ICONS: Record<WeaponId, React.ComponentType<{ className?: string }>> = {
+  melee: Swords,
+  pistol: Crosshair,
+  smg: Zap,
+  shotgun: Flame,
+  rifle: Crosshair,
+  rpg: Flame,
+};
 
 export const GameHud: React.FC<GameHudProps> = ({
   hud,
   character,
   language,
   onPause,
-  onSelectWeapon,
   onCycleWeapon,
   onCycleRadio,
   onCycleTime,
+  onToggleBuddy,
   onRespawn,
   onToggleVehicle,
   onStartMission,
+  onBuyFood,
   onTouchMove,
   onTouchFire,
   onTouchJumpOrDrift,
@@ -74,27 +89,20 @@ export const GameHud: React.FC<GameHudProps> = ({
     soundEngine.setMuted(next);
   };
 
-  const weapons: Array<{ id: WeaponId; label: string; short: string; icon: React.ComponentType<{ className?: string }> }> = [
-    { id: 'melee', label: t.weaponNames.melee, short: t.weaponShort.melee, icon: Swords },
-    { id: 'pistol', label: t.weaponNames.pistol, short: t.weaponShort.pistol, icon: Crosshair },
-    { id: 'smg', label: t.weaponNames.smg, short: t.weaponShort.smg, icon: Zap },
-    { id: 'shotgun', label: t.weaponNames.shotgun, short: t.weaponShort.shotgun, icon: Flame },
-    { id: 'rifle', label: t.weaponNames.rifle, short: t.weaponShort.rifle, icon: Crosshair },
-    { id: 'rpg', label: t.weaponNames.rpg, short: t.weaponShort.rpg, icon: Flame },
-  ];
-
   const TimeIcon = hud.timeOfDay === 'day' ? Sun : hud.timeOfDay === 'night' ? Moon : Sunset;
+  const ActiveWeaponIcon = WEAPON_ICONS[hud.activeWeapon];
 
   return (
-    <div dir={isRtl ? 'rtl' : 'ltr'} className="pointer-events-none fixed inset-0 z-10 flex flex-col justify-between p-3 sm:p-5">
-      {/* Top Row */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex flex-col gap-2 max-w-xs sm:max-w-sm pointer-events-auto">
-          <div className="flex flex-wrap items-center gap-1.5">
+    <div dir={isRtl ? 'rtl' : 'ltr'} className="pointer-events-none fixed inset-0 z-10 flex flex-col justify-between p-2.5 sm:p-5">
+      {/* Top Row: Left Utility + Radar | Right Stats */}
+      <div className="flex items-start justify-between gap-2.5">
+        <div className="flex flex-col gap-2 pointer-events-auto max-w-[62vw] sm:max-w-md">
+          {/* Well-spaced Top Utility Controls */}
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={onPause}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-neutral-950/90 hover:bg-neutral-900 border border-white/15 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-neutral-950/92 hover:bg-neutral-900 border border-white/15 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
             >
               <Menu className="w-4 h-4 text-amber-400" />
               <span>{t.pauseTitle}</span>
@@ -102,28 +110,28 @@ export const GameHud: React.FC<GameHudProps> = ({
             <button
               type="button"
               onClick={onCycleRadio}
-              className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg bg-neutral-950/90 hover:bg-neutral-900 border border-white/15 text-xs font-medium text-neutral-200 cursor-pointer whitespace-nowrap"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 sm:py-2 rounded-lg bg-neutral-950/92 hover:bg-neutral-900 border border-white/15 text-xs font-medium text-neutral-200 cursor-pointer whitespace-nowrap"
               title="R"
             >
               <Radio className="w-3.5 h-3.5 text-teal-400" />
-              <span className="hidden sm:inline">{t.radioNames[hud.radioStation]}</span>
+              <span className="hidden md:inline">{t.radioNames[hud.radioStation]}</span>
             </button>
             <button
               type="button"
               onClick={onCycleTime}
-              className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg bg-neutral-950/90 hover:bg-neutral-900 border border-white/15 text-xs font-medium text-neutral-200 cursor-pointer whitespace-nowrap"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 sm:py-2 rounded-lg bg-neutral-950/92 hover:bg-neutral-900 border border-white/15 text-xs font-medium text-neutral-200 cursor-pointer whitespace-nowrap"
               title="T"
             >
               <TimeIcon className="w-3.5 h-3.5 text-amber-300" />
-              <span className="hidden md:inline">{t.timeNames[hud.timeOfDay]}</span>
+              <span className="hidden lg:inline">{t.timeNames[hud.timeOfDay]}</span>
             </button>
             <button
               type="button"
               onClick={() => setShowTouch((v) => !v)}
-              className={`flex items-center gap-1 px-2.5 py-2 rounded-lg border text-xs font-medium cursor-pointer whitespace-nowrap ${
+              className={`flex items-center gap-1 px-2.5 py-1.5 sm:py-2 rounded-lg border text-xs font-medium cursor-pointer whitespace-nowrap ${
                 showTouch
                   ? 'bg-teal-500 text-neutral-950 border-teal-400'
-                  : 'bg-neutral-950/90 text-neutral-200 border-white/15 hover:bg-neutral-900'
+                  : 'bg-neutral-950/92 text-neutral-200 border-white/15 hover:bg-neutral-900'
               }`}
               title={t.touchControls}
             >
@@ -132,113 +140,195 @@ export const GameHud: React.FC<GameHudProps> = ({
             </button>
             <button
               type="button"
+              onClick={onToggleBuddy}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 sm:py-2 rounded-lg border text-xs font-semibold cursor-pointer whitespace-nowrap transition-colors ${
+                hud.buddyActive
+                  ? 'bg-cyan-500 text-neutral-950 border-cyan-300'
+                  : 'bg-neutral-950/92 text-cyan-300 border-white/15 hover:bg-neutral-900'
+              }`}
+              title="G"
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{hud.buddyActive ? t.buddyWithYou : t.buddyCall}</span>
+            </button>
+            <button
+              type="button"
               onClick={toggleMute}
-              className="p-2 rounded-lg bg-neutral-950/90 hover:bg-neutral-900 border border-white/15 text-neutral-200 cursor-pointer"
+              className="p-1.5 sm:p-2 rounded-lg bg-neutral-950/92 hover:bg-neutral-900 border border-white/15 text-neutral-200 cursor-pointer"
               aria-label={muted ? t.soundOff : t.soundOn}
             >
               {muted ? <VolumeX className="w-4 h-4 text-neutral-400" /> : <Volume2 className="w-4 h-4 text-amber-400" />}
             </button>
           </div>
 
-          {hud.activeMission && (
-            <div className="p-3 rounded-lg bg-neutral-950/92 border border-amber-400/40 text-white">
-              <div className="flex items-center justify-between gap-3 mb-1">
-                <span className="font-display text-sm font-bold text-amber-400">
-                  {hud.activeMission.title[language]}
-                </span>
-                {hud.activeMission.timeLeft > 0 && (
-                  <span className="font-hud text-xs font-bold tabular-nums text-rose-400">
-                    {Math.ceil(hud.activeMission.timeLeft)}s
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-neutral-200 mb-1.5">{hud.activeMission.objective[language]}</p>
-              <div className="flex items-center justify-between text-xs text-neutral-400 font-hud tabular-nums">
-                <span>
-                  {hud.activeMission.progress} / {hud.activeMission.total}
-                </span>
-                <span className="text-emerald-400">+${hud.activeMission.rewardCash}</span>
-              </div>
+          {/* Top-Left Radar + Contextual Action Prompts Side-by-Side so Bottom-Left stays 100% open for Joystick */}
+          <div className="flex items-start gap-2.5">
+            <div className="shrink-0">
+              <MinimapCanvas hud={hud} size={showTouch ? 102 : 132} range={88} />
             </div>
-          )}
 
-          {!hud.activeMission && hud.availableMissionPrompt && (
-            <button
-              type="button"
-              onClick={onStartMission}
-              className="p-3 rounded-lg bg-neutral-950/95 hover:bg-neutral-900 border border-teal-400/60 text-white text-start cursor-pointer"
-            >
-              <div className="text-xs font-bold text-teal-300 mb-0.5">
-                {hud.availableMissionPrompt.title[language]} · +${hud.availableMissionPrompt.reward}
-              </div>
-              <div className="text-xs text-neutral-200">{t.startMissionHint}</div>
-            </button>
-          )}
+            <div className="flex flex-col gap-1.5 min-w-0">
+              {hud.activeMission && (
+                <div
+                  className={`p-2.5 rounded-lg bg-neutral-950/92 border text-white max-w-[235px] ${
+                    hud.activeMission.isStory
+                      ? 'border-pink-400/60'
+                      : hud.activeMission.isCoop
+                        ? 'border-cyan-400/65'
+                        : 'border-amber-400/40'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-0.5">
+                    <span
+                      className={`font-display text-xs sm:text-sm font-bold truncate ${
+                        hud.activeMission.isStory
+                          ? 'text-pink-400'
+                          : hud.activeMission.isCoop
+                            ? 'text-cyan-300'
+                            : 'text-amber-400'
+                      }`}
+                    >
+                      {hud.activeMission.title[language]}
+                    </span>
+                    {hud.activeMission.timeLeft > 0 && (
+                      <span className="font-hud text-xs font-bold tabular-nums text-rose-400 shrink-0">
+                        {Math.ceil(hud.activeMission.timeLeft)}s
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] sm:text-xs text-neutral-200 leading-snug mb-1">
+                    {hud.activeMission.objective[language]}
+                  </p>
+                  <div className="flex items-center justify-between text-[11px] text-neutral-400 font-hud tabular-nums">
+                    <span>
+                      {hud.activeMission.progress} / {hud.activeMission.total}
+                    </span>
+                    <span className="text-emerald-400">+${hud.activeMission.rewardCash}</span>
+                  </div>
+                </div>
+              )}
 
-          {hud.nearbyVehiclePrompt && !hud.inVehicle && (
-            <button
-              type="button"
-              onClick={onToggleVehicle}
-              className="px-3 py-2 rounded-lg bg-neutral-950/95 hover:bg-neutral-900 border border-white/25 text-xs text-white flex items-center gap-2 cursor-pointer"
-            >
-              <Car className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>
-                {hud.nearbyVehiclePrompt} · {t.enterVehicleHint}
-              </span>
-            </button>
-          )}
+              {!hud.activeMission && hud.availableMissionPrompt && (
+                <button
+                  type="button"
+                  onClick={onStartMission}
+                  className={`p-2.5 rounded-lg bg-neutral-950/95 hover:bg-neutral-900 border text-white text-start cursor-pointer max-w-[235px] ${
+                    hud.availableMissionPrompt.isStory
+                      ? 'border-pink-400/70'
+                      : hud.availableMissionPrompt.isCoop
+                        ? 'border-cyan-400/70'
+                        : 'border-teal-400/60'
+                  }`}
+                >
+                  <div
+                    className={`text-xs font-bold mb-0.5 ${
+                      hud.availableMissionPrompt.isStory
+                        ? 'text-pink-300'
+                        : hud.availableMissionPrompt.isCoop
+                          ? 'text-cyan-300'
+                          : 'text-teal-300'
+                    }`}
+                  >
+                    {hud.availableMissionPrompt.title[language]} · +${hud.availableMissionPrompt.reward}
+                  </div>
+                  <div className="text-[11px] text-neutral-200">{t.startMissionHint}</div>
+                </button>
+              )}
+
+              {hud.nearbyRestaurantPrompt && !hud.inVehicle && (
+                <button
+                  type="button"
+                  onClick={onBuyFood}
+                  className="p-2.5 rounded-lg bg-neutral-950/95 hover:bg-neutral-900 border border-emerald-400/65 text-white text-start cursor-pointer max-w-[230px]"
+                >
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-300 mb-0.5">
+                    <Utensils className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">{hud.nearbyRestaurantPrompt.name[language]}</span>
+                  </div>
+                  <div className="text-[11px] text-neutral-200">
+                    -${hud.nearbyRestaurantPrompt.cost} (+{hud.nearbyRestaurantPrompt.heal} HP) · {t.buyFoodHint}
+                  </div>
+                </button>
+              )}
+
+              {hud.nearbyVehiclePrompt && !hud.inVehicle && (
+                <button
+                  type="button"
+                  onClick={onToggleVehicle}
+                  className="px-2.5 py-2 rounded-lg bg-neutral-950/95 hover:bg-neutral-900 border border-white/25 text-[11px] sm:text-xs text-white flex items-center gap-1.5 cursor-pointer max-w-[230px]"
+                >
+                  <Car className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span className="truncate">
+                    {hud.nearbyVehiclePrompt} · {t.enterVehicleHint}
+                  </span>
+                </button>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Top Right: Wanted, Cash, Health, Armor */}
-        <div className="flex flex-col items-end gap-1.5 bg-neutral-950/90 border border-white/15 rounded-xl px-3.5 py-2.5 min-w-[165px] sm:min-w-[190px]">
-          <div className="flex items-center gap-1" aria-label={t.wanted}>
-            {[1, 2, 3, 4, 5].map((star) => (
-              <Star
-                key={star}
-                className={`w-4 h-4 ${
-                  star <= hud.wantedStars ? 'text-amber-400 fill-amber-400' : 'text-neutral-700'
-                }`}
-              />
-            ))}
+        <div className="flex flex-col items-end gap-1 bg-neutral-950/92 border border-white/15 rounded-xl px-3 py-2 min-w-[140px] sm:min-w-[185px]">
+          <div className="flex items-center justify-between w-full gap-2">
+            <div className="flex items-center gap-2 font-hud tabular-nums">
+              <span className="text-[10px] text-cyan-300 font-bold">
+                {t.levelLabel} {hud.level}
+              </span>
+              <span className="text-[10px] text-pink-300 font-semibold">
+                {language === 'ar'
+                  ? `القصة ${Math.min(hud.storyChapter, 3)}/3`
+                  : `Story ${Math.min(hud.storyChapter, 3)}/3`}
+              </span>
+            </div>
+            <div className="flex items-center gap-0.5" aria-label={t.wanted}>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <Star
+                  key={star}
+                  className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${
+                    star <= hud.wantedStars ? 'text-amber-400 fill-amber-400' : 'text-neutral-700'
+                  }`}
+                />
+              ))}
+            </div>
           </div>
 
-          <div className="flex items-baseline gap-2.5 font-hud tabular-nums">
-            <span className="text-lg sm:text-xl font-bold text-emerald-400">
+          <div className="flex items-baseline gap-2 font-hud tabular-nums">
+            <span className="text-base sm:text-xl font-bold text-emerald-400">
               ${hud.cash.toLocaleString()}
             </span>
-            <span className="text-[11px] font-semibold text-amber-300">
+            <span className="text-[10px] sm:text-[11px] font-semibold text-amber-300">
               {t.respect} {hud.respect}
             </span>
           </div>
 
           <div className="w-full space-y-1">
-            <div className="flex items-center gap-2">
-              <Heart className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-              <div className="flex-1 h-2 bg-neutral-800 rounded-full overflow-hidden">
+            <div className="flex items-center gap-1.5">
+              <Heart className="w-3 h-3 text-rose-400 shrink-0" />
+              <div className="flex-1 h-1.5 sm:h-2 bg-neutral-800 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-emerald-500 transition-all duration-150"
                   style={{ width: `${Math.max(0, Math.min(100, (hud.health / hud.maxHealth) * 100))}%` }}
                 />
               </div>
-              <span className="font-hud text-[11px] tabular-nums text-neutral-300 w-7 text-end">
+              <span className="font-hud text-[10px] tabular-nums text-neutral-300 w-6 text-end">
                 {hud.health}
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              <Shield className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-              <div className="flex-1 h-2 bg-neutral-800 rounded-full overflow-hidden">
+            <div className="flex items-center gap-1.5">
+              <Shield className="w-3 h-3 text-sky-400 shrink-0" />
+              <div className="flex-1 h-1.5 sm:h-2 bg-neutral-800 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-sky-500 transition-all duration-150"
                   style={{ width: `${Math.max(0, Math.min(100, hud.armor))}%` }}
                 />
               </div>
-              <span className="font-hud text-[11px] tabular-nums text-neutral-300 w-7 text-end">
+              <span className="font-hud text-[10px] tabular-nums text-neutral-300 w-6 text-end">
                 {hud.armor}
               </span>
             </div>
           </div>
 
-          <div className="text-[11px] text-neutral-400 font-medium">
+          <div className="text-[10px] sm:text-[11px] text-neutral-400 font-medium truncate max-w-[175px]">
             {character.name[language]} · {hud.inVehicle ? hud.vehicleName : t.onFoot}
           </div>
         </div>
@@ -246,9 +336,9 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* Transient Center Banner */}
       {hud.bannerMessage && (
-        <div className="self-center px-6 py-2.5 rounded-lg bg-neutral-950/95 border border-amber-400/50 shadow-xl text-center">
+        <div className="self-center px-5 py-2 rounded-lg bg-neutral-950/95 border border-amber-400/50 shadow-xl text-center">
           <div
-            className={`font-display text-lg sm:text-xl font-bold tracking-wide ${
+            className={`font-display text-base sm:text-xl font-bold tracking-wide ${
               hud.bannerMessage.tone === 'success'
                 ? 'text-emerald-400'
                 : hud.bannerMessage.tone === 'alert'
@@ -263,10 +353,10 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       )}
 
-      {/* Bottom Area: Subtitles + Minimap + 6-Weapon Dock */}
-      <div className="flex flex-col gap-2.5">
+      {/* Bottom Center: Subtitles + Speedometer + Compact Single Weapon Switcher */}
+      <div className="flex flex-col items-center gap-2 pb-1">
         {hud.subtitle && (
-          <div className="self-center max-w-xl px-5 py-2.5 rounded-lg bg-neutral-950/92 border border-white/15 text-center shadow-lg">
+          <div className="max-w-lg px-4 py-2 rounded-lg bg-neutral-950/92 border border-white/15 text-center shadow-lg">
             <span className="text-xs sm:text-sm font-bold" style={{ color: hud.subtitle.color }}>
               {hud.subtitle.speaker}:{' '}
             </span>
@@ -274,55 +364,63 @@ export const GameHud: React.FC<GameHudProps> = ({
           </div>
         )}
 
-        <div className="flex items-end justify-between gap-3">
-          {/* Bottom Left Minimap */}
-          <div className="pointer-events-auto">
-            <MinimapCanvas hud={hud} size={showTouch ? 112 : 148} range={88} />
-          </div>
+        <div className="pointer-events-auto flex flex-col items-center gap-1.5">
+          {hud.inVehicle && (
+            <div className="px-3.5 py-1.5 rounded-lg bg-neutral-950/92 border border-white/15 flex items-center gap-3">
+              <span className="font-hud text-base sm:text-lg font-bold tabular-nums text-amber-400">
+                {hud.vehicleSpeedKmh} <span className="text-[11px] text-neutral-400">{t.kmh}</span>
+              </span>
+              <span
+                className={`font-hud text-xs font-semibold tabular-nums ${
+                  hud.vehicleHp < 30 ? 'text-rose-400' : hud.vehicleHp < 60 ? 'text-amber-300' : 'text-emerald-400'
+                }`}
+              >
+                HP {hud.vehicleHp}%
+              </span>
+              {!showTouch && (
+                <span className="text-[11px] text-neutral-300 hidden md:inline">{t.exitVehicleHint}</span>
+              )}
+            </div>
+          )}
 
-          {/* Bottom Center: Speedometer + 6-Weapon Arsenal Dock */}
-          <div className="pointer-events-auto flex flex-col items-center gap-1.5">
-            {hud.inVehicle && (
-              <div className="px-4 py-1.5 rounded-lg bg-neutral-950/92 border border-white/15 flex items-center gap-4">
-                <span className="font-hud text-lg sm:text-xl font-bold tabular-nums text-amber-400">
-                  {hud.vehicleSpeedKmh} <span className="text-xs text-neutral-400">{t.kmh}</span>
-                </span>
-                <span className="text-xs text-neutral-300 hidden md:inline">{t.exitVehicleHint}</span>
-              </div>
-            )}
+          {/* Compact Single-Slot Weapon Switcher (< Current Weapon >) */}
+          <div className="flex items-center gap-1 p-1 rounded-xl bg-neutral-950/92 border border-white/15 shadow-lg">
+            <button
+              type="button"
+              onClick={() => onCycleWeapon(-1)}
+              className="p-1.5 sm:p-2 rounded-lg text-neutral-300 hover:bg-neutral-800 active:bg-amber-500 active:text-neutral-950 cursor-pointer"
+              aria-label="Previous weapon"
+            >
+              {isRtl ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+            </button>
 
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-neutral-950/92 border border-white/15 overflow-x-auto max-w-[66vw] sm:max-w-none">
-              {weapons.map((w) => {
-                const active = hud.activeWeapon === w.id;
-                return (
-                  <button
-                    key={w.id}
-                    type="button"
-                    onClick={() => onSelectWeapon(w.id)}
-                    className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
-                      active ? 'bg-amber-500 text-neutral-950' : 'text-neutral-300 hover:bg-neutral-800'
-                    }`}
-                    title={w.label}
-                  >
-                    <w.icon className="w-3.5 h-3.5" />
-                    <span className="hidden lg:inline">{w.label}</span>
-                    <span className="lg:hidden">{w.short}</span>
-                  </button>
-                );
-              })}
+            <div className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold text-amber-400 min-w-[78px] sm:min-w-[130px] justify-center">
+              <ActiveWeaponIcon className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline whitespace-nowrap">{t.weaponNames[hud.activeWeapon]}</span>
+              <span className="sm:hidden whitespace-nowrap">{t.weaponShort[hud.activeWeapon]}</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => onCycleWeapon(1)}
+              className="p-1.5 sm:p-2 rounded-lg text-neutral-300 hover:bg-neutral-800 active:bg-amber-500 active:text-neutral-950 cursor-pointer"
+              aria-label="Next weapon"
+            >
+              {isRtl ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            </button>
+
+            {!showTouch && (
               <button
                 type="button"
                 onClick={onToggleVehicle}
-                className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold text-neutral-200 hover:bg-neutral-800 border-s border-white/10 cursor-pointer whitespace-nowrap"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-neutral-200 hover:bg-neutral-800 border-s border-white/10 cursor-pointer whitespace-nowrap"
                 title="F"
               >
                 <Car className="w-3.5 h-3.5 text-amber-400" />
-                <span className="hidden sm:inline">{hud.inVehicle ? t.exitBtn : t.carBtn}</span>
+                <span>{hud.inVehicle ? t.exitBtn : t.carBtn}</span>
               </button>
-            </div>
+            )}
           </div>
-
-          <div className="hidden sm:block w-[112px]" />
         </div>
       </div>
 
@@ -335,7 +433,6 @@ export const GameHud: React.FC<GameHudProps> = ({
           onFire={onTouchFire}
           onJumpOrDrift={onTouchJumpOrDrift}
           onToggleVehicle={onToggleVehicle}
-          onCycleWeapon={onCycleWeapon}
         />
       )}
 

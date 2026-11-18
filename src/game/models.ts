@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { VehicleKind, WeaponId } from '../types/game';
+import { BrandAssetSlot } from './textures';
 
 export interface VehicleRig {
   group: THREE.Group;
@@ -7,6 +8,7 @@ export interface VehicleRig {
   frontSteerPivots: THREE.Group[];
   headlights: THREE.MeshStandardMaterial;
   taillights: THREE.MeshStandardMaterial;
+  bodyMat: THREE.MeshPhysicalMaterial;
   sirenRed?: THREE.MeshStandardMaterial;
   sirenBlue?: THREE.MeshStandardMaterial;
 }
@@ -24,17 +26,129 @@ export interface CharacterRig {
   weaponMeshes: Record<WeaponId, THREE.Group>;
 }
 
-function makeWheel(radius: number, width: number): THREE.Group {
+/**
+ * Shared Geometry & Material Pool so repeated trees, lamps, traffic lights,
+ * wheels, contact shadows, and props share GPU buffers & draw state for 60+ FPS.
+ */
+export class ModelAssetPool {
+  private geos: THREE.BufferGeometry[] = [];
+  private mats: THREE.Material[] = [];
+
+  public tireMat: THREE.MeshStandardMaterial;
+  public rimMat: THREE.MeshStandardMaterial;
+  public caliperMat: THREE.MeshStandardMaterial;
+  public chromeMat: THREE.MeshStandardMaterial;
+  public darkMetalMat: THREE.MeshStandardMaterial;
+  public shadowMat: THREE.MeshBasicMaterial;
+  public trunkMat: THREE.MeshStandardMaterial;
+  public palmLeafMat: THREE.MeshStandardMaterial;
+  public canopyMat: THREE.MeshStandardMaterial;
+  public redHydrantMat: THREE.MeshStandardMaterial;
+  public trashMat: THREE.MeshStandardMaterial;
+  public coneOrangeMat: THREE.MeshStandardMaterial;
+  public coneWhiteMat: THREE.MeshStandardMaterial;
+  public woodMat: THREE.MeshStandardMaterial;
+  public billboardFrameMat: THREE.MeshStandardMaterial;
+
+  public shadowGeo: THREE.CircleGeometry;
+  public sphere8Geo: THREE.SphereGeometry;
+  public lampBaseGeo: THREE.CylinderGeometry;
+  public lampPoleGeo: THREE.CylinderGeometry;
+  public lampArmGeo: THREE.BoxGeometry;
+  public lampHeadGeo: THREE.BoxGeometry;
+  public lampBulbGeo: THREE.BoxGeometry;
+  public parkTrunkGeo: THREE.CylinderGeometry;
+  public parkCanopy1Geo: THREE.DodecahedronGeometry;
+  public parkCanopy2Geo: THREE.DodecahedronGeometry;
+  public palmLowTrunkGeo: THREE.CylinderGeometry;
+  public palmLowCrownGeo: THREE.ConeGeometry;
+
+  constructor() {
+    this.tireMat = this.trackMat(new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.88, metalness: 0.08 }));
+    this.rimMat = this.trackMat(new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.18, metalness: 0.92 }));
+    this.caliperMat = this.trackMat(new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.35, metalness: 0.6 }));
+    this.chromeMat = this.trackMat(new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.16, metalness: 0.92 }));
+    this.darkMetalMat = this.trackMat(new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.4, metalness: 0.8 }));
+    this.shadowMat = this.trackMat(
+      new THREE.MeshBasicMaterial({ color: 0x050507, transparent: true, opacity: 0.4, depthWrite: false }),
+    );
+    this.trunkMat = this.trackMat(new THREE.MeshStandardMaterial({ color: 0x78553a, roughness: 0.9 }));
+    this.palmLeafMat = this.trackMat(new THREE.MeshStandardMaterial({ color: 0x2f855a, roughness: 0.65, side: THREE.DoubleSide }));
+    this.canopyMat = this.trackMat(new THREE.MeshStandardMaterial({ color: 0x2d6a4f, roughness: 0.78 }));
+    this.redHydrantMat = this.trackMat(new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.35, metalness: 0.4 }));
+    this.trashMat = this.trackMat(new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.5, metalness: 0.65 }));
+    this.coneOrangeMat = this.trackMat(new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.45 }));
+    this.coneWhiteMat = this.trackMat(new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 }));
+    this.woodMat = this.trackMat(new THREE.MeshStandardMaterial({ color: 0x92400e, roughness: 0.75 }));
+    this.billboardFrameMat = this.trackMat(new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.4, metalness: 0.75 }));
+
+    this.shadowGeo = this.trackGeo(new THREE.CircleGeometry(1, 16));
+    this.shadowGeo.rotateX(-Math.PI / 2);
+    this.sphere8Geo = this.trackGeo(new THREE.SphereGeometry(0.09, 6, 6));
+
+    this.lampBaseGeo = this.trackGeo(new THREE.CylinderGeometry(0.18, 0.24, 0.6, 6));
+    this.lampPoleGeo = this.trackGeo(new THREE.CylinderGeometry(0.08, 0.12, 5.2, 6));
+    this.lampArmGeo = this.trackGeo(new THREE.BoxGeometry(1.3, 0.1, 0.1));
+    this.lampHeadGeo = this.trackGeo(new THREE.BoxGeometry(0.45, 0.14, 0.28));
+    this.lampBulbGeo = this.trackGeo(new THREE.BoxGeometry(0.36, 0.08, 0.22));
+
+    this.parkTrunkGeo = this.trackGeo(new THREE.CylinderGeometry(0.24, 0.34, 2.4, 6));
+    this.parkCanopy1Geo = this.trackGeo(new THREE.DodecahedronGeometry(1.5, 0));
+    this.parkCanopy2Geo = this.trackGeo(new THREE.DodecahedronGeometry(1.15, 0));
+    this.palmLowTrunkGeo = this.trackGeo(new THREE.CylinderGeometry(0.18, 0.28, 6.2, 6));
+    this.palmLowCrownGeo = this.trackGeo(new THREE.ConeGeometry(2.1, 1.8, 6));
+  }
+
+  public trackGeo<T extends THREE.BufferGeometry>(g: T): T {
+    this.geos.push(g);
+    return g;
+  }
+
+  public trackMat<T extends THREE.Material>(m: T): T {
+    this.mats.push(m);
+    return m;
+  }
+
+  public dispose() {
+    this.geos.forEach((g) => g.dispose());
+    this.mats.forEach((m) => m.dispose());
+    this.geos = [];
+    this.mats = [];
+  }
+}
+
+export function createContactShadow(rx: number, rz: number, pool?: ModelAssetPool): THREE.Mesh {
+  const geo =
+    pool?.shadowGeo ??
+    (() => {
+      const g = new THREE.CircleGeometry(1, 16);
+      g.rotateX(-Math.PI / 2);
+      return g;
+    })();
+  const mat =
+    pool?.shadowMat ??
+    new THREE.MeshBasicMaterial({
+      color: 0x050507,
+      transparent: true,
+      opacity: 0.4,
+      depthWrite: false,
+    });
+  const m = new THREE.Mesh(geo, mat);
+  m.scale.set(rx, 1, rz);
+  m.position.y = 0.04;
+  return m;
+}
+
+function makeWheel(radius: number, width: number, pool?: ModelAssetPool): THREE.Group {
   const wheel = new THREE.Group();
-  const tireMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.88, metalness: 0.08 });
-  const rimMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.18, metalness: 0.92 });
-  const caliperMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.35, metalness: 0.6 });
+  const tireMat = pool?.tireMat ?? new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.88, metalness: 0.08 });
+  const rimMat = pool?.rimMat ?? new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.18, metalness: 0.92 });
+  const caliperMat = pool?.caliperMat ?? new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.35, metalness: 0.6 });
 
-  const tire = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, width, 20), tireMat);
+  const tire = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, width, 16), tireMat);
   tire.rotation.z = Math.PI / 2;
-  tire.castShadow = true;
 
-  const rim = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.62, radius * 0.62, width + 0.02, 14), rimMat);
+  const rim = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.62, radius * 0.62, width + 0.02, 12), rimMat);
   rim.rotation.z = Math.PI / 2;
 
   const spoke1 = new THREE.Mesh(new THREE.BoxGeometry(width + 0.03, radius * 1.12, 0.055), rimMat);
@@ -57,7 +171,7 @@ export function createWeaponMesh(id: WeaponId): THREE.Group {
   if (id === 'melee') {
     const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.24, 8), darkMetal);
     handle.position.y = 0.12;
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.024, 0.56, 10), woodMat);
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.024, 0.56, 8), woodMat);
     barrel.position.y = 0.5;
     g.add(handle, barrel);
     g.rotation.x = Math.PI / 3;
@@ -73,7 +187,7 @@ export function createWeaponMesh(id: WeaponId): THREE.Group {
     body.position.set(0, 0.03, 0.08);
     const mag = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.19, 0.055), gunSteel);
     mag.position.set(0, -0.09, 0.1);
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.15, 8), gunSteel);
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.15, 6), gunSteel);
     barrel.rotation.x = Math.PI / 2;
     barrel.position.set(0, 0.04, 0.28);
     g.add(body, mag, barrel);
@@ -82,31 +196,31 @@ export function createWeaponMesh(id: WeaponId): THREE.Group {
     stock.position.set(0, 0.01, -0.05);
     const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.095, 0.28), darkMetal);
     receiver.position.set(0, 0.03, 0.15);
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.44, 8), gunSteel);
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.44, 6), gunSteel);
     barrel.rotation.x = Math.PI / 2;
     barrel.position.set(0, 0.06, 0.44);
-    const pump = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.034, 0.18, 8), woodMat);
+    const pump = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.034, 0.18, 6), woodMat);
     pump.rotation.x = Math.PI / 2;
     pump.position.set(0, 0.02, 0.4);
     g.add(stock, receiver, barrel, pump);
   } else if (id === 'rifle') {
     const body = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.1, 0.42), darkMetal);
     body.position.set(0, 0.03, 0.15);
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.36, 8), gunSteel);
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.36, 6), gunSteel);
     barrel.rotation.x = Math.PI / 2;
     barrel.position.set(0, 0.045, 0.48);
     const mag = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.18, 0.075), darkMetal);
     mag.position.set(0, -0.08, 0.2);
     mag.rotation.x = 0.22;
-    const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.16, 8), gunSteel);
+    const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.16, 6), gunSteel);
     scope.rotation.x = Math.PI / 2;
     scope.position.set(0, 0.105, 0.15);
     g.add(body, barrel, mag, scope);
   } else if (id === 'rpg') {
-    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 1.05, 12), oliveMat);
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 1.05, 8), oliveMat);
     tube.rotation.x = Math.PI / 2;
     tube.position.set(0, 0.12, 0.25);
-    const warhead = new THREE.Mesh(new THREE.ConeGeometry(0.085, 0.24, 10), new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.4 }));
+    const warhead = new THREE.Mesh(new THREE.ConeGeometry(0.085, 0.24, 8), new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.4 }));
     warhead.rotation.x = Math.PI / 2;
     warhead.position.set(0, 0.12, 0.85);
     const grip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.06), darkMetal);
@@ -116,14 +230,47 @@ export function createWeaponMesh(id: WeaponId): THREE.Group {
   return g;
 }
 
-export function createVehicleMesh(kind: VehicleKind, primaryColor: number): VehicleRig {
+/**
+ * Helper: Creates an aspect-ratio locked Plane mesh bound to a BrandAssetSlot.
+ * When the remote texture finishes loading, width scales automatically to preserve naturalWidth / naturalHeight.
+ */
+export function createAspectTexturedPlane(
+  slot: BrandAssetSlot,
+  height: number,
+  options?: { doubleSided?: boolean; polygonOffset?: boolean },
+): THREE.Mesh {
+  const mat = new THREE.MeshBasicMaterial({
+    map: slot.texture,
+    transparent: slot.isTransparent,
+    alphaTest: slot.isTransparent ? 0.12 : 0,
+    side: options?.doubleSided ? THREE.DoubleSide : THREE.FrontSide,
+    polygonOffset: Boolean(options?.polygonOffset),
+    polygonOffsetFactor: options?.polygonOffset ? -1 : 0,
+    polygonOffsetUnits: options?.polygonOffset ? -1 : 0,
+  });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+  mesh.scale.set(height * slot.aspect, height, 1);
+
+  slot.onAspectReady.push((actualAspect) => {
+    mesh.scale.x = height * actualAspect;
+  });
+
+  return mesh;
+}
+
+export function createVehicleMesh(
+  kind: VehicleKind,
+  primaryColor: number,
+  pool?: ModelAssetPool,
+  brandSlot?: BrandAssetSlot,
+): VehicleRig {
   const group = new THREE.Group();
 
   const bodyMat = new THREE.MeshPhysicalMaterial({
     color: kind === 'police' ? 0x0f172a : kind === 'taxi' ? 0xfacc15 : primaryColor,
     roughness: 0.18,
     metalness: 0.58,
-    clearcoat: 0.92,
+    clearcoat: 0.9,
     clearcoatRoughness: 0.1,
   });
 
@@ -142,7 +289,7 @@ export function createVehicleMesh(kind: VehicleKind, primaryColor: number): Vehi
     opacity: 0.78,
   });
 
-  const chromeMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.14, metalness: 0.94 });
+  const chromeMat = pool?.chromeMat ?? new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.14, metalness: 0.94 });
   const headlights = new THREE.MeshStandardMaterial({
     color: 0xfef9c3,
     emissive: 0xfef08a,
@@ -177,15 +324,15 @@ export function createVehicleMesh(kind: VehicleKind, primaryColor: number): Vehi
     screen.position.set(0, 1.14, 0.62);
     screen.rotation.x = -0.45;
 
-    const fork = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.85, 8), chromeMat);
+    const fork = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.85, 6), chromeMat);
     fork.position.set(0, 0.68, 0.78);
     fork.rotation.x = 0.28;
 
-    const handlebar = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.78, 8), secondaryMat);
+    const handlebar = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.78, 6), secondaryMat);
     handlebar.rotation.z = Math.PI / 2;
     handlebar.position.set(0, 1.05, 0.52);
 
-    const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.065, 0.75, 10), chromeMat);
+    const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.065, 0.75, 8), chromeMat);
     exhaust.rotation.x = Math.PI / 2;
     exhaust.position.set(0.24, 0.42, -0.45);
 
@@ -196,14 +343,15 @@ export function createVehicleMesh(kind: VehicleKind, primaryColor: number): Vehi
 
     const frontPivot = new THREE.Group();
     frontPivot.position.set(0, 0.34, 0.88);
-    const fw = makeWheel(0.34, 0.16);
+    const fw = makeWheel(0.34, 0.16, pool);
     frontPivot.add(fw);
 
     const rearPivot = new THREE.Group();
     rearPivot.position.set(0, 0.34, -0.78);
-    const rw = makeWheel(0.34, 0.2);
+    const rw = makeWheel(0.34, 0.2, pool);
     rearPivot.add(rw);
 
+    group.add(createContactShadow(0.5, 1.25, pool));
     group.add(frame, tank, seat, cowl, screen, fork, handlebar, exhaust, hl, tl, frontPivot, rearPivot);
     return {
       group,
@@ -211,6 +359,7 @@ export function createVehicleMesh(kind: VehicleKind, primaryColor: number): Vehi
       frontSteerPivots: [frontPivot],
       headlights,
       taillights,
+      bodyMat,
     };
   }
 
@@ -261,6 +410,23 @@ export function createVehicleMesh(kind: VehicleKind, primaryColor: number): Vehi
     group.add(s1, s2);
   }
 
+  // Brand decals (A.png / E.png) on doors & hood for non-police vehicles
+  if (brandSlot && kind !== 'police') {
+    const decalL = createAspectTexturedPlane(brandSlot, bodyH * 0.75, { polygonOffset: true });
+    decalL.position.set(-bodyW * 0.5 - 0.015, chassisY, 0.1);
+    decalL.rotation.y = -Math.PI / 2;
+
+    const decalR = createAspectTexturedPlane(brandSlot, bodyH * 0.75, { polygonOffset: true });
+    decalR.position.set(bodyW * 0.5 + 0.015, chassisY, 0.1);
+    decalR.rotation.y = Math.PI / 2;
+
+    const hoodDecal = createAspectTexturedPlane(brandSlot, 0.78, { polygonOffset: true });
+    hoodDecal.position.set(0, chassisY + bodyH * 0.5 + 0.085, bodyL * 0.31);
+    hoodDecal.rotation.x = -Math.PI / 2 + 0.05;
+
+    group.add(decalL, decalR, hoodDecal);
+  }
+
   // Front Grille & License Plate
   const grille = new THREE.Mesh(new THREE.BoxGeometry(bodyW * 0.56, bodyH * 0.45, 0.08), secondaryMat);
   grille.position.set(0, chassisY - 0.05, bodyL * 0.5 + 0.02);
@@ -294,7 +460,7 @@ export function createVehicleMesh(kind: VehicleKind, primaryColor: number): Vehi
   frontBumper.position.set(0, chassisY - bodyH * 0.28, bodyL * 0.5 + 0.05);
   const rearBumper = frontBumper.clone();
   rearBumper.position.z = -bodyL * 0.5 - 0.05;
-  const exL = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.22, 8), chromeMat);
+  const exL = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.22, 6), chromeMat);
   exL.rotation.x = Math.PI / 2;
   exL.position.set(-0.55, chassisY - bodyH * 0.35, -bodyL * 0.5 - 0.08);
   const exR = exL.clone();
@@ -312,7 +478,6 @@ export function createVehicleMesh(kind: VehicleKind, primaryColor: number): Vehi
   tlR.position.x = bodyW * 0.34;
   group.add(hlL, hlR, tlL, tlR);
 
-  // Signature Gear
   let sirenRed: THREE.MeshStandardMaterial | undefined;
   let sirenBlue: THREE.MeshStandardMaterial | undefined;
 
@@ -365,7 +530,7 @@ export function createVehicleMesh(kind: VehicleKind, primaryColor: number): Vehi
     rackL.position.set(-cabinW * 0.4, cabin.position.y + cabinH * 0.5 + 0.05, cabin.position.z);
     const rackR = rackL.clone();
     rackR.position.x = cabinW * 0.4;
-    const spare = makeWheel(0.36, 0.22);
+    const spare = makeWheel(0.36, 0.22, pool);
     spare.rotation.y = Math.PI / 2;
     spare.position.set(0, chassisY + 0.18, -bodyL * 0.5 - 0.14);
     group.add(rackL, rackR, spare);
@@ -389,14 +554,15 @@ export function createVehicleMesh(kind: VehicleKind, primaryColor: number): Vehi
   ].forEach((pos) => {
     const pivot = new THREE.Group();
     pivot.position.set(pos.x, wheelR, pos.z);
-    const w = makeWheel(wheelR, wheelW);
+    const w = makeWheel(wheelR, wheelW, pool);
     pivot.add(w);
     group.add(pivot);
     wheels.push(w);
     if (pos.front) frontSteerPivots.push(pivot);
   });
 
-  return { group, wheels, frontSteerPivots, headlights, taillights, sirenRed, sirenBlue };
+  group.add(createContactShadow(bodyW * 0.65, bodyL * 0.56, pool));
+  return { group, wheels, frontSteerPivots, headlights, taillights, bodyMat, sirenRed, sirenBlue };
 }
 
 export function createCharacterMesh(cfg: {
@@ -408,8 +574,10 @@ export function createCharacterMesh(cfg: {
   sunglasses?: boolean;
   isPolice?: boolean;
   isHostile?: boolean;
+  castShadow?: boolean;
 }): CharacterRig {
   const group = new THREE.Group();
+  const useShadow = cfg.castShadow ?? false;
 
   const skinMat = new THREE.MeshStandardMaterial({ color: cfg.skin, roughness: 0.62 });
   const jacketMat = new THREE.MeshStandardMaterial({ color: cfg.jacket, roughness: 0.52, metalness: 0.08 });
@@ -419,46 +587,42 @@ export function createCharacterMesh(cfg: {
   const shoeSoleMat = new THREE.MeshStandardMaterial({ color: 0x09090b, roughness: 0.7 });
   const hairMat = new THREE.MeshStandardMaterial({ color: cfg.hair, roughness: 0.82 });
 
-  // Pelvis / Hips
-  const pelvis = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.22, 0.22, 12), pantsMat);
+  const pelvis = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.22, 0.22, 10), pantsMat);
   pelvis.position.y = 0.88;
   group.add(pelvis);
 
-  // Sculpted Torso (Chest + Jacket Collar + Belt)
-  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.21, 0.56, 12), jacketMat);
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.21, 0.56, 10), jacketMat);
   torso.scale.set(1.12, 1, 0.65);
   torso.position.y = 1.24;
-  torso.castShadow = true;
+  torso.castShadow = useShadow;
   group.add(torso);
 
   const chestV = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.46, 0.28), shirtMat);
   chestV.position.set(0, 1.25, 0.04);
   group.add(chestV);
 
-  const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.225, 0.225, 0.06, 12), shoeSoleMat);
+  const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.225, 0.225, 0.06, 10), shoeSoleMat);
   belt.scale.set(1.08, 1, 0.68);
   belt.position.y = 0.96;
   group.add(belt);
 
-  // Neck
-  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.09, 0.14, 10), skinMat);
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.09, 0.14, 8), skinMat);
   neck.position.y = 1.56;
   group.add(neck);
 
-  // Sculpted Rounded Head + Ears + Hair/Cap/Sunglasses
   const head = new THREE.Group();
   head.position.set(0, 1.72, 0);
-  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.175, 14, 12), skinMat);
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.175, 12, 10), skinMat);
   skull.scale.set(0.92, 1.08, 0.96);
-  skull.castShadow = true;
+  skull.castShadow = useShadow;
 
-  const jaw = new THREE.Mesh(new THREE.CylinderGeometry(0.125, 0.095, 0.14, 10), skinMat);
+  const jaw = new THREE.Mesh(new THREE.CylinderGeometry(0.125, 0.095, 0.14, 8), skinMat);
   jaw.position.set(0, -0.09, 0.02);
 
   const nose = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.06, 0.05), skinMat);
   nose.position.set(0, -0.01, 0.17);
 
-  const earL = new THREE.Mesh(new THREE.SphereGeometry(0.038, 8, 8), skinMat);
+  const earL = new THREE.Mesh(new THREE.SphereGeometry(0.038, 6, 6), skinMat);
   earL.position.set(-0.16, 0, 0);
   const earR = earL.clone();
   earR.position.x = 0.16;
@@ -467,13 +631,13 @@ export function createCharacterMesh(cfg: {
 
   if (cfg.isPolice) {
     const capMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.45 });
-    const capTop = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.17, 0.1, 12), capMat);
+    const capTop = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.17, 0.1, 10), capMat);
     capTop.position.set(0, 0.14, 0);
     const visor = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.03, 0.14), shoeSoleMat);
     visor.position.set(0, 0.1, 0.16);
     head.add(capTop, visor);
   } else {
-    const hairTop = new THREE.Mesh(new THREE.SphereGeometry(0.182, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.58), hairMat);
+    const hairTop = new THREE.Mesh(new THREE.SphereGeometry(0.182, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.58), hairMat);
     hairTop.position.set(0, 0.03, -0.01);
     head.add(hairTop);
   }
@@ -489,7 +653,7 @@ export function createCharacterMesh(cfg: {
     head.add(lensL, lensR, bridge);
   } else {
     const eyeMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.3 });
-    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 8), eyeMat);
+    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.022, 6, 6), eyeMat);
     eyeL.position.set(-0.058, 0.03, 0.158);
     const eyeR = eyeL.clone();
     eyeR.position.x = 0.058;
@@ -498,7 +662,7 @@ export function createCharacterMesh(cfg: {
 
   if (cfg.isHostile) {
     const bandana = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.155, 0.14, 0.08, 12),
+      new THREE.CylinderGeometry(0.155, 0.14, 0.08, 10),
       new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.7 }),
     );
     bandana.position.set(0, -0.07, 0.02);
@@ -506,22 +670,20 @@ export function createCharacterMesh(cfg: {
   }
   group.add(head);
 
-  // Articulated Arms (Shoulder -> Upper Arm -> Elbow -> Forearm -> Hand)
   const makeArm = (side: -1 | 1) => {
     const shoulder = new THREE.Group();
     shoulder.position.set(side * 0.31, 1.46, 0);
 
-    const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.072, 0.062, 0.28, 10), jacketMat);
+    const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.072, 0.062, 0.28, 8), jacketMat);
     upper.position.y = -0.14;
-    upper.castShadow = true;
+    upper.castShadow = useShadow;
 
     const forearmPivot = new THREE.Group();
     forearmPivot.position.y = -0.28;
-    const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.048, 0.25, 10), jacketMat);
+    const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.048, 0.25, 8), jacketMat);
     forearm.position.y = -0.125;
-    forearm.castShadow = true;
 
-    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 8), skinMat);
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.055, 6, 6), skinMat);
     hand.position.y = -0.27;
 
     forearmPivot.add(forearm, hand);
@@ -533,7 +695,6 @@ export function createCharacterMesh(cfg: {
   const armL = makeArm(-1);
   const armR = makeArm(1);
 
-  // Weapon Mount attached to Right Hand
   const weaponMount = new THREE.Group();
   weaponMount.position.set(0, -0.27, 0.04);
   armR.forearmPivot.add(weaponMount);
@@ -551,18 +712,16 @@ export function createCharacterMesh(cfg: {
     weaponMount.add(weaponMeshes[wid]);
   });
 
-  // Articulated Legs (Hip -> Thigh -> Shin -> Sneaker)
   const makeLeg = (side: -1 | 1) => {
     const hip = new THREE.Group();
     hip.position.set(side * 0.12, 0.84, 0);
 
-    const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.08, 0.38, 10), pantsMat);
+    const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.08, 0.38, 8), pantsMat);
     thigh.position.y = -0.19;
-    thigh.castShadow = true;
+    thigh.castShadow = useShadow;
 
-    const shin = new THREE.Mesh(new THREE.CylinderGeometry(0.078, 0.065, 0.36, 10), pantsMat);
+    const shin = new THREE.Mesh(new THREE.CylinderGeometry(0.078, 0.065, 0.36, 8), pantsMat);
     shin.position.y = -0.55;
-    shin.castShadow = true;
 
     const sneaker = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.1, 0.26), shoeMat);
     sneaker.position.set(0, -0.78, 0.04);
@@ -590,13 +749,20 @@ export function createCharacterMesh(cfg: {
   };
 }
 
-export function createHouseMesh(
+/**
+ * LOD House Builder:
+ * Level 0 (<68m): Full villa with roof, door, porch, garage, glowing windows, garden hedge
+ * Level 1 (68m-155m): Lightweight 2-mesh box + hip roof proxy
+ * Level 2 (>155m): Culled empty Group
+ */
+export function createHouseLOD(
   wallTex: THREE.CanvasTexture,
   roofTex: THREE.CanvasTexture,
   tintColor: number,
   twoStory = true,
-): THREE.Group {
-  const house = new THREE.Group();
+  pool?: ModelAssetPool,
+): THREE.LOD {
+  const lod = new THREE.LOD();
   const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, color: tintColor, roughness: 0.8 });
   const roofMat = new THREE.MeshStandardMaterial({ map: roofTex, roughness: 0.72 });
   const trimMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.5 });
@@ -608,113 +774,251 @@ export function createHouseMesh(
     roughness: 0.2,
   });
   const hedgeMat = new THREE.MeshStandardMaterial({ color: 0x166534, roughness: 0.88 });
+  if (pool) {
+    pool.trackMat(wallMat);
+    pool.trackMat(roofMat);
+    pool.trackMat(trimMat);
+    pool.trackMat(doorMat);
+    pool.trackMat(winMat);
+    pool.trackMat(hedgeMat);
+  }
 
   const w = 11.5;
   const d = 10.0;
   const h = twoStory ? 6.6 : 4.0;
+  const bodyGeo = new THREE.BoxGeometry(w, h, d);
+  const roofGeo = new THREE.ConeGeometry(8.6, 2.8, 4);
+  if (pool) {
+    pool.trackGeo(bodyGeo);
+    pool.trackGeo(roofGeo);
+  }
 
-  // Main House Body
-  const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
+  // LOD 0: High Detail
+  const high = new THREE.Group();
+  const body = new THREE.Mesh(bodyGeo, wallMat);
   body.position.y = h / 2;
   body.castShadow = true;
   body.receiveShadow = true;
-  house.add(body);
+  high.add(body);
 
-  // Pitched Hip Roof
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(8.6, 2.8, 4), roofMat);
+  const roof = new THREE.Mesh(roofGeo, roofMat);
   roof.rotation.y = Math.PI / 4;
   roof.position.y = h + 1.4;
-  roof.castShadow = true;
-  house.add(roof);
+  high.add(roof);
 
-  // Front Door + Porch Canopy
   const door = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.4, 0.18), doorMat);
   door.position.set(-1.5, 1.2, d / 2 + 0.05);
   const porch = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.22, 1.8), trimMat);
   porch.position.set(-1.5, 2.7, d / 2 + 0.8);
-  house.add(door, porch);
+  high.add(door, porch);
 
-  // Garage Door
-  const garage = new THREE.Mesh(
-    new THREE.BoxGeometry(3.8, 2.5, 0.16),
-    new THREE.MeshStandardMaterial({ color: 0xdbeafe, roughness: 0.5 }),
-  );
+  const garage = new THREE.Mesh(new THREE.BoxGeometry(3.8, 2.5, 0.16), trimMat);
   garage.position.set(2.8, 1.25, d / 2 + 0.06);
-  house.add(garage);
+  high.add(garage);
 
-  // Glowing Windows (Front & Back & Upper Floor)
   [-3.8, 0.5].forEach((wx) => {
     const win = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.3, 0.15), winMat);
     win.position.set(wx, 1.7, d / 2 + 0.06);
-    house.add(win);
+    high.add(win);
     if (twoStory) {
       const win2 = win.clone();
       win2.position.y = 4.6;
-      house.add(win2);
+      high.add(win2);
     }
   });
-  if (twoStory) {
-    const winG = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.3, 0.15), winMat);
-    winG.position.set(2.8, 4.6, d / 2 + 0.06);
-    house.add(winG);
-  }
-
-  // Garden Hedges
   const hedgeL = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.8, 0.7), hedgeMat);
   hedgeL.position.set(-3.8, 0.4, d / 2 + 1.4);
-  house.add(hedgeL);
+  high.add(hedgeL);
 
-  return house;
+  // LOD 1: Low Detail Proxy
+  const med = new THREE.Group();
+  const mBody = new THREE.Mesh(bodyGeo, wallMat);
+  mBody.position.y = h / 2;
+  const mRoof = new THREE.Mesh(roofGeo, roofMat);
+  mRoof.rotation.y = Math.PI / 4;
+  mRoof.position.y = h + 1.4;
+  med.add(mBody, mRoof);
+
+  lod.addLevel(high, 0);
+  lod.addLevel(med, 68);
+  lod.addLevel(new THREE.Group(), 155);
+  return lod;
 }
 
-export function createTrafficLight(): THREE.Group {
+export function createTrafficLight(pool: ModelAssetPool): THREE.Group {
   const g = new THREE.Group();
-  const metal = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.4, metalness: 0.8 });
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, 4.8, 8), metal);
+  const metal = pool.darkMetalMat;
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, 4.8, 6), metal);
   pole.position.y = 2.4;
   const arm = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.12, 0.12), metal);
   arm.position.set(1.1, 4.7, 0);
   const box = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.9, 0.3), metal);
   box.position.set(2.1, 4.5, 0);
 
-  const red = new THREE.Mesh(
-    new THREE.SphereGeometry(0.09, 8, 8),
-    new THREE.MeshBasicMaterial({ color: 0xef4444 }),
-  );
+  const red = new THREE.Mesh(pool.sphere8Geo, pool.trackMat(new THREE.MeshBasicMaterial({ color: 0xef4444 })));
   red.position.set(2.1, 4.76, 0.15);
-  const amber = new THREE.Mesh(
-    new THREE.SphereGeometry(0.09, 8, 8),
-    new THREE.MeshBasicMaterial({ color: 0xf59e0b }),
-  );
+  const amber = new THREE.Mesh(pool.sphere8Geo, pool.trackMat(new THREE.MeshBasicMaterial({ color: 0xf59e0b })));
   amber.position.set(2.1, 4.5, 0.15);
-  const green = new THREE.Mesh(
-    new THREE.SphereGeometry(0.09, 8, 8),
-    new THREE.MeshBasicMaterial({ color: 0x22c55e }),
-  );
+  const green = new THREE.Mesh(pool.sphere8Geo, pool.trackMat(new THREE.MeshBasicMaterial({ color: 0x22c55e })));
   green.position.set(2.1, 4.24, 0.15);
 
   g.add(pole, arm, box, red, amber, green);
   return g;
 }
 
-export function createBillboard(tex: THREE.CanvasTexture): THREE.Group {
+/**
+ * Giant Roadside / Rooftop Billboard synchronized cleanly to BrandAssetSlot aspect ratio.
+ */
+export function createAspectBillboard(
+  slot: BrandAssetSlot,
+  displayHeight = 3.8,
+  pool?: ModelAssetPool,
+  withPoles = true,
+): THREE.Group {
   const g = new THREE.Group();
-  const metal = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.4, metalness: 0.8 });
-  const p1 = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 6, 8), metal);
-  p1.position.set(-3.2, 3, 0);
-  const p2 = p1.clone();
-  p2.position.x = 3.2;
-  const frame = new THREE.Mesh(new THREE.BoxGeometry(9.2, 3.6, 0.35), metal);
-  frame.position.y = 6.5;
-  const face = new THREE.Mesh(
-    new THREE.PlaneGeometry(8.8, 3.2),
-    new THREE.MeshBasicMaterial({ map: tex }),
-  );
-  face.position.set(0, 6.5, 0.19);
-  const faceBack = face.clone();
+  const frameMat = pool?.billboardFrameMat ?? new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.4, metalness: 0.8 });
+  const cy = withPoles ? 6.4 : displayHeight / 2 + 0.3;
+
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.32), frameMat);
+  frame.position.y = cy;
+  frame.scale.set(displayHeight * slot.aspect + 0.45, displayHeight + 0.4, 1);
+
+  const face = createAspectTexturedPlane(slot, displayHeight);
+  face.position.set(0, cy, 0.18);
+
+  const faceBack = createAspectTexturedPlane(slot, displayHeight);
   faceBack.rotation.y = Math.PI;
-  faceBack.position.z = -0.19;
-  g.add(p1, p2, frame, face, faceBack);
+  faceBack.position.set(0, cy, -0.18);
+
+  slot.onAspectReady.push((actualAspect) => {
+    frame.scale.x = displayHeight * actualAspect + 0.45;
+  });
+
+  if (withPoles) {
+    const pGeo = new THREE.CylinderGeometry(0.18, 0.22, cy - displayHeight / 2, 6);
+    const p1 = new THREE.Mesh(pGeo, frameMat);
+    p1.position.set(-2.4, (cy - displayHeight / 2) / 2, 0);
+    const p2 = p1.clone();
+    p2.position.x = 2.4;
+    g.add(p1, p2);
+  }
+
+  g.add(frame, face, faceBack);
+  return g;
+}
+
+/**
+ * Wall-mounted or Fence-mounted Square/Poster/Banner Sign with backing border + exact aspect sync.
+ */
+export function createWallBanner(slot: BrandAssetSlot, targetHeight: number, doubleSided = false): THREE.Group {
+  const g = new THREE.Group();
+  const frame = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 0.1),
+    new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.5, metalness: 0.4 }),
+  );
+  frame.scale.set(targetHeight * slot.aspect + 0.2, targetHeight + 0.2, 1);
+
+  const front = createAspectTexturedPlane(slot, targetHeight, { polygonOffset: true });
+  front.position.z = 0.06;
+  g.add(frame, front);
+
+  if (doubleSided) {
+    const back = createAspectTexturedPlane(slot, targetHeight, { polygonOffset: true });
+    back.rotation.y = Math.PI;
+    back.position.z = -0.06;
+    g.add(back);
+  }
+
+  slot.onAspectReady.push((actualAspect) => {
+    frame.scale.x = targetHeight * actualAspect + 0.2;
+  });
+
+  return g;
+}
+
+/**
+ * Festive Street Banner Arch (e.g. عيد.png & festive street sign) spanning boulevard walkways.
+ */
+export function createStreetFestiveBanner(slot: BrandAssetSlot, widthSpan = 9.5, bannerHeight = 2.6, pool?: ModelAssetPool): THREE.Group {
+  const g = new THREE.Group();
+  const poleMat = pool?.chromeMat ?? new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.85, roughness: 0.25 });
+  const poleH = 6.2;
+  const pGeo = new THREE.CylinderGeometry(0.1, 0.13, poleH, 6);
+  const pL = new THREE.Mesh(pGeo, poleMat);
+  pL.position.set(-widthSpan / 2, poleH / 2, 0);
+  const pR = new THREE.Mesh(pGeo, poleMat);
+  pR.position.set(widthSpan / 2, poleH / 2, 0);
+
+  const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, widthSpan + 0.3, 6), poleMat);
+  bar.rotation.z = Math.PI / 2;
+  bar.position.y = poleH - 0.15;
+
+  const face = createAspectTexturedPlane(slot, bannerHeight, { doubleSided: true });
+  face.position.set(0, poleH - bannerHeight * 0.5 - 0.2, 0);
+
+  g.add(pL, pR, bar, face);
+  return g;
+}
+
+/**
+ * Animated Waving Egyptian Flag Pole (GPU Vertex Shader on MeshStandardMaterial -> 0% CPU cost).
+ */
+export function createEgyptFlagPole(
+  flagTex: THREE.CanvasTexture,
+  scale = 1,
+  flagUniformsOut: Array<{ value: number }>,
+  pool?: ModelAssetPool,
+): THREE.Group {
+  const g = new THREE.Group();
+  const poleMat = pool?.chromeMat ?? new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.2, metalness: 0.9 });
+  const goldMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.22, metalness: 0.88 });
+  const baseMat = pool?.darkMetalMat ?? new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.6 });
+
+  const poleH = 8.6;
+  const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 0.45, 8), baseMat);
+  plinth.position.y = 0.225;
+
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, poleH, 8), poleMat);
+  pole.position.y = poleH / 2;
+
+  const finial = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8), goldMat);
+  finial.position.y = poleH + 0.1;
+
+  // Subdivided flag fabric anchored at x = 0 (uv.x = 0)
+  const flagW = 3.3;
+  const flagH = 2.15;
+  const flagGeo = new THREE.PlaneGeometry(flagW, flagH, 12, 4);
+  flagGeo.translate(flagW / 2 + 0.08, 0, 0);
+
+  const timeUniform = { value: 0 };
+  flagUniformsOut.push(timeUniform);
+
+  const flagMat = new THREE.MeshStandardMaterial({
+    map: flagTex,
+    roughness: 0.65,
+    metalness: 0.05,
+    side: THREE.DoubleSide,
+  });
+  flagMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uFlagTime = timeUniform;
+    shader.vertexShader = 'uniform float uFlagTime;\n' + shader.vertexShader;
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      `
+      #include <begin_vertex>
+      float pinWeight = clamp(uv.x, 0.0, 1.0);
+      float wave = sin(uv.x * 7.5 - uFlagTime * 4.6) * 0.22 + cos(uv.y * 4.0 - uFlagTime * 3.0) * 0.06;
+      transformed.z += wave * pinWeight;
+      transformed.y += sin(uv.x * 5.0 - uFlagTime * 3.8) * 0.08 * pinWeight;
+      `,
+    );
+  };
+
+  const flagMesh = new THREE.Mesh(flagGeo, flagMat);
+  flagMesh.position.set(0, poleH - flagH / 2 - 0.25, 0);
+
+  g.add(plinth, pole, finial, flagMesh);
+  g.scale.setScalar(scale);
   return g;
 }
 
@@ -724,99 +1028,149 @@ export function createCafeSet(umbrellaColor: number): THREE.Group {
   const tableMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 });
   const umbMat = new THREE.MeshStandardMaterial({ color: umbrellaColor, roughness: 0.65, side: THREE.DoubleSide });
 
-  const table = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.65, 0.08, 12), tableMat);
+  const table = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.65, 0.08, 10), tableMat);
   table.position.y = 0.78;
-  const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 2.3, 8), poleMat);
+  const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 2.3, 6), poleMat);
   leg.position.y = 1.15;
-  const umb = new THREE.Mesh(new THREE.ConeGeometry(1.5, 0.65, 8), umbMat);
+  const umb = new THREE.Mesh(new THREE.ConeGeometry(1.5, 0.65, 7), umbMat);
   umb.position.y = 2.35;
   g.add(table, leg, umb);
   return g;
 }
 
-export function createPalmTree(scale = 1): THREE.Group {
-  const tree = new THREE.Group();
-  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x78553a, roughness: 0.9 });
-  const leafMat = new THREE.MeshStandardMaterial({ color: 0x2f855a, roughness: 0.65, side: THREE.DoubleSide });
+/**
+ * LOD Palm Tree:
+ * 0-52m: 5 trunk segs + 7 fronds
+ * 52-130m: 2-mesh simplified palm
+ * 130m+: hidden
+ */
+export function createPalmTreeLOD(scale = 1, pool?: ModelAssetPool): THREE.LOD {
+  const lod = new THREE.LOD();
+  const trunkMat = pool?.trunkMat ?? new THREE.MeshStandardMaterial({ color: 0x78553a, roughness: 0.9 });
+  const leafMat = pool?.palmLeafMat ?? new THREE.MeshStandardMaterial({ color: 0x2f855a, roughness: 0.65, side: THREE.DoubleSide });
 
+  const high = new THREE.Group();
   const segs = 5;
   let y = 0;
   let leanX = 0;
   for (let i = 0; i < segs; i++) {
     const rBottom = 0.26 - i * 0.025;
     const rTop = 0.23 - i * 0.025;
-    const seg = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBottom, 1.35, 8), trunkMat);
+    const seg = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBottom, 1.35, 6), trunkMat);
     seg.position.set(leanX, y + 0.65, 0);
     seg.rotation.z = -0.05 * i;
-    seg.castShadow = true;
-    tree.add(seg);
+    high.add(seg);
     y += 1.25;
     leanX += 0.11 * i;
   }
 
-  for (let i = 0; i < 7; i++) {
-    const angle = (i / 7) * Math.PI * 2;
+  for (let i = 0; i < 6; i++) {
+    const angle = (i / 6) * Math.PI * 2;
     const frondPivot = new THREE.Group();
     frondPivot.position.set(leanX, y, 0);
     frondPivot.rotation.y = angle;
-    const frond = new THREE.Mesh(new THREE.ConeGeometry(0.55, 2.7, 5), leafMat);
+    const frond = new THREE.Mesh(new THREE.ConeGeometry(0.55, 2.7, 4), leafMat);
     frond.rotation.x = Math.PI * 0.64;
     frond.position.set(0, -0.15, 1.3);
     frond.scale.set(1, 1, 0.25);
-    frond.castShadow = true;
     frondPivot.add(frond);
-    tree.add(frondPivot);
+    high.add(frondPivot);
   }
 
-  tree.scale.setScalar(scale);
-  return tree;
+  const med = new THREE.Group();
+  const mTrunk = new THREE.Mesh(pool?.palmLowTrunkGeo ?? new THREE.CylinderGeometry(0.18, 0.28, 6.2, 6), trunkMat);
+  mTrunk.position.y = 3.1;
+  const mCrown = new THREE.Mesh(pool?.palmLowCrownGeo ?? new THREE.ConeGeometry(2.1, 1.8, 6), leafMat);
+  mCrown.position.y = 6.2;
+  med.add(mTrunk, mCrown);
+
+  lod.addLevel(high, 0);
+  lod.addLevel(med, 52);
+  lod.addLevel(new THREE.Group(), 132);
+  lod.scale.setScalar(scale);
+  return lod;
 }
 
-export function createParkTree(scale = 1): THREE.Group {
-  const tree = new THREE.Group();
-  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.9 });
-  const canopyMat = new THREE.MeshStandardMaterial({ color: 0x2d6a4f, roughness: 0.78 });
+/**
+ * LOD Park Tree:
+ * 0-52m: trunk + 2 dodecahedrons
+ * 52-130m: low-poly 1-sphere canopy
+ * 130m+: hidden
+ */
+export function createParkTreeLOD(scale = 1, pool?: ModelAssetPool): THREE.LOD {
+  const lod = new THREE.LOD();
+  const trunkMat = pool?.trunkMat ?? new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.9 });
+  const canopyMat = pool?.canopyMat ?? new THREE.MeshStandardMaterial({ color: 0x2d6a4f, roughness: 0.78 });
 
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.34, 2.4, 8), trunkMat);
+  const high = new THREE.Group();
+  const trunk = new THREE.Mesh(pool?.parkTrunkGeo ?? new THREE.CylinderGeometry(0.24, 0.34, 2.4, 6), trunkMat);
   trunk.position.y = 1.2;
-  trunk.castShadow = true;
-
-  const c1 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.5, 1), canopyMat);
+  const c1 = new THREE.Mesh(pool?.parkCanopy1Geo ?? new THREE.DodecahedronGeometry(1.5, 0), canopyMat);
   c1.position.y = 3.1;
-  c1.castShadow = true;
-
-  const c2 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.15, 1), canopyMat);
+  const c2 = new THREE.Mesh(pool?.parkCanopy2Geo ?? new THREE.DodecahedronGeometry(1.15, 0), canopyMat);
   c2.position.set(0.7, 3.6, 0.4);
-  c2.castShadow = true;
+  high.add(trunk, c1, c2);
 
-  tree.add(trunk, c1, c2);
-  tree.scale.setScalar(scale);
-  return tree;
+  const med = new THREE.Group();
+  const mTrunk = new THREE.Mesh(pool?.parkTrunkGeo ?? new THREE.CylinderGeometry(0.24, 0.34, 2.4, 6), trunkMat);
+  mTrunk.position.y = 1.2;
+  const mCanopy = new THREE.Mesh(pool?.parkCanopy1Geo ?? new THREE.DodecahedronGeometry(1.5, 0), canopyMat);
+  mCanopy.position.y = 3.2;
+  med.add(mTrunk, mCanopy);
+
+  lod.addLevel(high, 0);
+  lod.addLevel(med, 52);
+  lod.addLevel(new THREE.Group(), 132);
+  lod.scale.setScalar(scale);
+  return lod;
 }
 
-export function createStreetLamp(): { group: THREE.Group; bulbMat: THREE.MeshStandardMaterial } {
-  const group = new THREE.Group();
-  const poleMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.4, metalness: 0.8 });
-  const bulbMat = new THREE.MeshStandardMaterial({
-    color: 0xfef3c7,
-    emissive: 0xfbbf24,
-    emissiveIntensity: 0.85,
-    roughness: 0.2,
-  });
+/**
+ * LOD Street Lamp with optional Poster attached on the pole.
+ */
+export function createStreetLampLOD(
+  pool: ModelAssetPool,
+  posterSlot?: BrandAssetSlot,
+): { lod: THREE.LOD; bulbMat: THREE.MeshStandardMaterial } {
+  const lod = new THREE.LOD();
+  const poleMat = pool.darkMetalMat;
+  const bulbMat = pool.trackMat(
+    new THREE.MeshStandardMaterial({
+      color: 0xfef3c7,
+      emissive: 0xfbbf24,
+      emissiveIntensity: 0.85,
+      roughness: 0.2,
+    }),
+  );
 
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, 0.6, 8), poleMat);
+  const high = new THREE.Group();
+  const base = new THREE.Mesh(pool.lampBaseGeo, poleMat);
   base.position.y = 0.3;
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 5.2, 8), poleMat);
+  const pole = new THREE.Mesh(pool.lampPoleGeo, poleMat);
   pole.position.y = 2.9;
-  const arm = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.1, 0.1), poleMat);
+  const arm = new THREE.Mesh(pool.lampArmGeo, poleMat);
   arm.position.set(0.55, 5.45, 0);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.14, 0.28), poleMat);
+  const head = new THREE.Mesh(pool.lampHeadGeo, poleMat);
   head.position.set(1.1, 5.42, 0);
-  const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.08, 0.22), bulbMat);
+  const bulb = new THREE.Mesh(pool.lampBulbGeo, bulbMat);
   bulb.position.set(1.1, 5.34, 0);
+  high.add(base, pole, arm, head, bulb);
 
-  group.add(base, pole, arm, head, bulb);
-  return { group, bulbMat };
+  if (posterSlot) {
+    const poster = createWallBanner(posterSlot, 1.35, true);
+    poster.position.set(0, 2.8, 0.14);
+    high.add(poster);
+  }
+
+  const med = new THREE.Group();
+  const mPole = new THREE.Mesh(pool.lampPoleGeo, poleMat);
+  mPole.position.y = 2.9;
+  med.add(mPole);
+
+  lod.addLevel(high, 0);
+  lod.addLevel(med, 55);
+  lod.addLevel(new THREE.Group(), 125);
+  return { lod, bulbMat };
 }
 
 export function createStuntRamp(): THREE.Group {
@@ -840,7 +1194,6 @@ export function createStuntRamp(): THREE.Group {
   const wedge = new THREE.Mesh(geo, rampMat);
   wedge.rotation.y = -Math.PI / 2;
   wedge.position.y = 1.15;
-  wedge.castShadow = true;
   wedge.receiveShadow = true;
 
   const arrow = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.08, 4.6), stripeMat);
@@ -879,8 +1232,114 @@ export function createPickupMesh(kind: 'health' | 'armor' | 'cash' | 'wanted'): 
     group.add(shield);
   } else {
     const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.6, 0), mat);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.75, 0.07, 8, 20), mat);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.75, 0.07, 6, 16), mat);
     group.add(star, ring);
   }
   return group;
+}
+
+export function createRestaurantMesh(
+  accentColor: number,
+  labelText: string,
+  shopLogoSlot?: BrandAssetSlot,
+): THREE.Group {
+  const g = new THREE.Group();
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.7 });
+  const awningMat = new THREE.MeshStandardMaterial({ color: accentColor, roughness: 0.55 });
+  const glassMat = new THREE.MeshStandardMaterial({
+    color: 0xfef08a,
+    emissive: 0xfde047,
+    emissiveIntensity: 0.75,
+    roughness: 0.2,
+  });
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(8.5, 4.4, 6.5), wallMat);
+  body.position.y = 2.2;
+  body.castShadow = true;
+  body.receiveShadow = true;
+
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(6.6, 2.2, 0.2), glassMat);
+  glass.position.set(0, 1.4, 3.28);
+
+  const awning = new THREE.Mesh(new THREE.BoxGeometry(8.2, 0.35, 2.2), awningMat);
+  awning.position.set(0, 2.85, 4.1);
+  awning.rotation.x = 0.22;
+
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 64;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#09090b';
+  ctx.fillRect(0, 0, 256, 64);
+  ctx.fillStyle = '#fef08a';
+  ctx.font = 'bold 22px Cairo, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(labelText, 128, 40);
+  const signTex = new THREE.CanvasTexture(c);
+  signTex.colorSpace = THREE.SRGBColorSpace;
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 1.3), new THREE.MeshBasicMaterial({ map: signTex }));
+  sign.position.set(0, 3.8, 3.3);
+
+  if (shopLogoSlot) {
+    const logoLeft = createAspectTexturedPlane(shopLogoSlot, 1.4, { polygonOffset: true });
+    logoLeft.position.set(-4.3, 2.4, 0);
+    logoLeft.rotation.y = -Math.PI / 2;
+    const logoRight = createAspectTexturedPlane(shopLogoSlot, 1.4, { polygonOffset: true });
+    logoRight.position.set(4.3, 2.4, 0);
+    logoRight.rotation.y = Math.PI / 2;
+    g.add(logoLeft, logoRight);
+  }
+
+  const cafe1 = createCafeSet(accentColor);
+  cafe1.position.set(-2.4, 0, 5.4);
+  const cafe2 = createCafeSet(accentColor);
+  cafe2.position.set(2.4, 0, 5.4);
+
+  g.add(body, glass, awning, sign, cafe1, cafe2);
+  return g;
+}
+
+export function createBreakableProp(kind: 'hydrant' | 'trash' | 'cone' | 'bench', pool?: ModelAssetPool): THREE.Group {
+  const g = new THREE.Group();
+  if (kind === 'hydrant') {
+    const red = pool?.redHydrantMat ?? new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.35, metalness: 0.4 });
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 0.72, 8), red);
+    body.position.y = 0.36;
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), red);
+    cap.position.y = 0.74;
+    const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.48, 6), red);
+    nozzle.rotation.z = Math.PI / 2;
+    nozzle.position.y = 0.5;
+    g.add(body, cap, nozzle);
+  } else if (kind === 'trash') {
+    const mat = pool?.trashMat ?? new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.5, metalness: 0.65 });
+    const bin = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.28, 0.9, 8), mat);
+    bin.position.y = 0.45;
+    const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.1, 8), mat);
+    lid.position.y = 0.92;
+    g.add(bin, lid);
+  } else if (kind === 'cone') {
+    const orange = pool?.coneOrangeMat ?? new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.45 });
+    const white = pool?.coneWhiteMat ?? new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 });
+    const base = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.06, 0.46), orange);
+    base.position.y = 0.03;
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.62, 8), orange);
+    cone.position.y = 0.34;
+    const stripe = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, 0.14, 8), white);
+    stripe.position.y = 0.34;
+    g.add(base, cone, stripe);
+  } else {
+    const wood = pool?.woodMat ?? new THREE.MeshStandardMaterial({ color: 0x92400e, roughness: 0.75 });
+    const iron = pool?.darkMetalMat ?? new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.4, metalness: 0.8 });
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.1, 0.55), wood);
+    seat.position.y = 0.48;
+    const back = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.45, 0.08), wood);
+    back.position.set(0, 0.75, -0.24);
+    const legL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.48, 0.5), iron);
+    legL.position.set(-0.7, 0.24, 0);
+    const legR = legL.clone();
+    legR.position.x = 0.7;
+    g.add(seat, back, legL, legR);
+  }
+  return g;
 }

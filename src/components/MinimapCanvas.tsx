@@ -73,9 +73,47 @@ export const MinimapCanvas: React.FC<MinimapCanvasProps> = ({
 
     hud.blips.forEach((blip) => {
       const p = toScreen(blip.x, blip.z);
-      if (p.x < -8 || p.x > w + 8 || p.y < -8 || p.y > h + 8) return;
+      if (p.x < -10 || p.x > w + 10 || p.y < -10 || p.y > h + 10) return;
+
+      if (blip.type === 'food') {
+        const s = fullMap ? 6.5 : 5;
+        ctx.fillStyle = '#22c55e';
+        ctx.strokeStyle = '#052e16';
+        ctx.lineWidth = 1;
+        ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
+        ctx.strokeRect(p.x - s / 2, p.y - s / 2, s, s);
+        return;
+      }
+
       ctx.beginPath();
-      if (blip.type === 'police') {
+      if (blip.type === 'story') {
+        const r = fullMap ? 6.2 : 4.8;
+        ctx.fillStyle = '#ec4899';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.2;
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        return;
+      } else if (blip.type === 'coop') {
+        const r = fullMap ? 6.2 : 4.8;
+        ctx.fillStyle = '#14b8a6';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.3;
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        return;
+      } else if (blip.type === 'buddy') {
+        const r = fullMap ? 5.6 : 4.4;
+        ctx.fillStyle = '#06b6d4';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.2;
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        return;
+      } else if (blip.type === 'police') {
         ctx.fillStyle = '#ef4444';
         ctx.arc(p.x, p.y, fullMap ? 4.5 : 3.6, 0, Math.PI * 2);
       } else if (blip.type === 'hostile') {
@@ -83,13 +121,13 @@ export const MinimapCanvas: React.FC<MinimapCanvasProps> = ({
         ctx.arc(p.x, p.y, fullMap ? 3.5 : 2.8, 0, Math.PI * 2);
       } else if (blip.type === 'mission' || blip.type === 'target') {
         ctx.fillStyle = blip.type === 'target' ? '#38bdf8' : '#f59e0b';
-        ctx.arc(p.x, p.y, fullMap ? 6 : 4.5, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, fullMap ? 5.8 : 4.4, 0, Math.PI * 2);
       } else if (blip.type === 'pickup') {
-        ctx.fillStyle = '#22c55e';
-        ctx.arc(p.x, p.y, fullMap ? 3.5 : 2.6, 0, Math.PI * 2);
+        ctx.fillStyle = '#4ade80';
+        ctx.arc(p.x, p.y, fullMap ? 3.2 : 2.5, 0, Math.PI * 2);
       } else {
         ctx.fillStyle = '#cbd5e1';
-        ctx.arc(p.x, p.y, fullMap ? 2.5 : 2.1, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, fullMap ? 2.4 : 2.0, 0, Math.PI * 2);
       }
       ctx.fill();
     });
@@ -117,7 +155,7 @@ export const MinimapCanvas: React.FC<MinimapCanvasProps> = ({
       ref={canvasRef}
       width={size}
       height={size}
-      className="block rounded-lg border-2 border-neutral-800 bg-neutral-950"
+      className="block rounded-lg border-2 border-neutral-800 bg-neutral-950 shadow-lg"
     />
   );
 };
