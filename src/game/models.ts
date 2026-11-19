@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { VehicleKind, WeaponId } from '../types/game';
-import { BrandAssetSlot } from './textures';
+import { ShopOption, VehicleKind, WeaponId } from '../types/game';
+import { BrandAssetSlot, makeShopSignTexture } from './textures';
 
 export interface VehicleRig {
   group: THREE.Group;
@@ -1343,3 +1343,413 @@ export function createBreakableProp(kind: 'hydrant' | 'trash' | 'cone' | 'bench'
   }
   return g;
 }
+
+export type InteriorKind = 'house' | 'armory' | 'tech' | 'cafe' | 'koshary';
+
+export interface EnterableInteriorResult {
+  id: string;
+  kind: InteriorKind;
+  name: { en: string; ar: string };
+  roleTitle: { en: string; ar: string };
+  isSafehouse?: boolean;
+  group: THREE.Group;
+  wallColliders: Array<{ x: number; z: number; w: number; d: number; h: number; isHouse?: boolean }>;
+  bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
+  interactPoint: { x: number; z: number };
+  doorSpot: { x: number; z: number };
+  vendorRig?: CharacterRig;
+  vendorBaseYaw?: number;
+  options: ShopOption[];
+}
+
+export function createEnterableInteriorBuilding(cfg: {
+  id: string;
+  kind: InteriorKind;
+  cx: number;
+  cz: number;
+  facing: 'south' | 'north';
+  name: { en: string; ar: string };
+  roleTitle: { en: string; ar: string };
+  signTitleAr: string;
+  signSubAr: string;
+  accentColor: number;
+  accentHex: string;
+  bgHex: string;
+  wallColor: number;
+  floorColor: number;
+  options: ShopOption[];
+  logoSlot?: BrandAssetSlot;
+  interiorPosterSlot?: BrandAssetSlot;
+  pool?: ModelAssetPool;
+}): EnterableInteriorResult {
+  const g = new THREE.Group();
+  const baseY = 0.22;
+  const w = cfg.kind === 'house' ? 11.6 : 10.6;
+  const d = cfg.kind === 'house' ? 9.6 : 8.8;
+  const h = 4.6;
+  const wallThick = 0.45;
+  const doorW = 3.2;
+  const dirZ = cfg.facing === 'south' ? 1 : -1;
+
+  g.position.set(cfg.cx, baseY, cfg.cz);
+  if (cfg.facing === 'north') {
+    g.rotation.y = Math.PI;
+  }
+
+  const wallMat = new THREE.MeshStandardMaterial({ color: cfg.wallColor, roughness: 0.75 });
+  const innerWallMat = new THREE.MeshStandardMaterial({
+    color: cfg.kind === 'house' ? 0xf5efe6 : 0xe2e8f0,
+    roughness: 0.8,
+  });
+  const floorMat = new THREE.MeshStandardMaterial({ color: cfg.floorColor, roughness: 0.55 });
+  const roofMat = new THREE.MeshStandardMaterial({
+    color: cfg.kind === 'house' ? 0x9a3412 : 0x1e293b,
+    roughness: 0.7,
+  });
+  const glassMat = new THREE.MeshPhysicalMaterial({
+    color: 0xbae6fd,
+    roughness: 0.08,
+    metalness: 0.15,
+    transparent: true,
+    opacity: 0.42,
+    depthWrite: false,
+  });
+  const woodMat = cfg.pool?.woodMat ?? new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.72 });
+  const darkMat = cfg.pool?.darkMetalMat ?? new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.4, metalness: 0.75 });
+  const accentMat = new THREE.MeshStandardMaterial({
+    color: cfg.accentColor,
+    emissive: cfg.accentColor,
+    emissiveIntensity: 0.55,
+    roughness: 0.3,
+  });
+
+  // Interior Floor & Ceiling Roof
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(w - 0.1, 0.12, d - 0.1), floorMat);
+  floor.position.y = 0.06;
+  floor.receiveShadow = true;
+  g.add(floor);
+
+  const ceiling = new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, 0.36, d + 0.5), roofMat);
+  ceiling.position.y = h + 0.18;
+  ceiling.castShadow = true;
+  g.add(ceiling);
+
+  if (cfg.kind === 'house') {
+    const hipRoof = new THREE.Mesh(new THREE.ConeGeometry(8.5, 2.2, 4), roofMat);
+    hipRoof.rotation.y = Math.PI / 4;
+    hipRoof.position.y = h + 1.45;
+    g.add(hipRoof);
+  }
+
+  // Interior Ceiling Light Bar (brightens room visually)
+  const lightBar = new THREE.Mesh(
+    new THREE.BoxGeometry(w * 0.55, 0.08, 0.45),
+    new THREE.MeshBasicMaterial({ color: 0xfef9c3 }),
+  );
+  lightBar.position.set(0, h - 0.06, -0.4);
+  g.add(lightBar);
+
+  // Back wall
+  const backWall = new THREE.Mesh(new THREE.BoxGeometry(w, h, wallThick), wallMat);
+  backWall.position.set(0, h / 2, -d / 2 + wallThick / 2);
+  backWall.castShadow = true;
+  backWall.receiveShadow = true;
+  g.add(backWall);
+
+  // Left & Right side walls
+  const sideWallL = new THREE.Mesh(new THREE.BoxGeometry(wallThick, h, d), wallMat);
+  sideWallL.position.set(-w / 2 + wallThick / 2, h / 2, 0);
+  sideWallL.castShadow = true;
+  const sideWallR = sideWallL.clone();
+  sideWallR.position.x = w / 2 - wallThick / 2;
+  g.add(sideWallL, sideWallR);
+
+  // Front Left & Front Right wall sections (leaving a 3.2m wide open front doorway!)
+  const frontSegW = (w - doorW) / 2;
+  const frontL = new THREE.Mesh(new THREE.BoxGeometry(frontSegW, h, wallThick), wallMat);
+  frontL.position.set(-w / 2 + frontSegW / 2, h / 2, d / 2 - wallThick / 2);
+  const frontR = new THREE.Mesh(new THREE.BoxGeometry(frontSegW, h, wallThick), wallMat);
+  frontR.position.set(w / 2 - frontSegW / 2, h / 2, d / 2 - wallThick / 2);
+
+  // Transom above doorway + Glass storefront windows
+  const lintel = new THREE.Mesh(new THREE.BoxGeometry(doorW, h - 2.9, wallThick), wallMat);
+  lintel.position.set(0, 2.9 + (h - 2.9) / 2, d / 2 - wallThick / 2);
+  const winL = new THREE.Mesh(new THREE.BoxGeometry(frontSegW * 0.65, 1.8, 0.08), glassMat);
+  winL.position.set(frontL.position.x, 1.8, d / 2 + 0.04);
+  const winR = winL.clone();
+  winR.position.x = frontR.position.x;
+  g.add(frontL, frontR, lintel, winL, winR);
+
+  // Storefront Illuminated Signboard ("يافطة المحل") + Awning
+  const signTex = makeShopSignTexture(cfg.signTitleAr, cfg.signSubAr, cfg.bgHex, cfg.accentHex);
+  const signBoard = new THREE.Mesh(
+    new THREE.BoxGeometry(w * 0.84, 1.25, 0.24),
+    new THREE.MeshBasicMaterial({ map: signTex }),
+  );
+  signBoard.position.set(0, h - 0.5, d / 2 + 0.18);
+  g.add(signBoard);
+
+  const awning = new THREE.Mesh(
+    new THREE.BoxGeometry(w * 0.88, 0.16, 1.5),
+    new THREE.MeshStandardMaterial({ color: cfg.accentColor, roughness: 0.55 }),
+  );
+  awning.position.set(0, 3.05, d / 2 + 0.72);
+  awning.rotation.x = 0.2;
+  g.add(awning);
+
+  // Side logos + Interior ad poster on back wall
+  if (cfg.logoSlot) {
+    const logoL = createAspectTexturedPlane(cfg.logoSlot, 1.5, { polygonOffset: true });
+    logoL.position.set(-w / 2 - 0.04, 2.5, 0);
+    logoL.rotation.y = -Math.PI / 2;
+    const logoR = createAspectTexturedPlane(cfg.logoSlot, 1.5, { polygonOffset: true });
+    logoR.position.set(w / 2 + 0.04, 2.5, 0);
+    logoR.rotation.y = Math.PI / 2;
+    g.add(logoL, logoR);
+  }
+  if (cfg.interiorPosterSlot) {
+    const poster = createAspectTexturedPlane(cfg.interiorPosterSlot, 1.8, { polygonOffset: true });
+    poster.position.set(-w * 0.28, 2.45, -d / 2 + wallThick + 0.05);
+    g.add(poster);
+  }
+
+  // Interior Ring Trigger near Counter/Bed
+  const interactLocalZ = cfg.kind === 'house' ? -1.1 : -0.7;
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.95, 1.28, 20),
+    new THREE.MeshBasicMaterial({ color: cfg.accentColor, side: THREE.DoubleSide, transparent: true, opacity: 0.85 }),
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(0, 0.14, interactLocalZ + 1.1);
+  g.add(ring);
+
+  // Door Entrance Mat outside
+  const matMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(2.6, 0.05, 1.2),
+    new THREE.MeshStandardMaterial({ color: cfg.accentColor, roughness: 0.8 }),
+  );
+  matMesh.position.set(0, 0.05, d / 2 + 0.55);
+  g.add(matMesh);
+
+  let vendorRig: CharacterRig | undefined;
+  let vendorBaseYaw: number | undefined;
+  const wallColliders: Array<{ x: number; z: number; w: number; d: number; h: number; isHouse?: boolean }> = [];
+
+  // Transform local (lx, lz) collider into exact world coordinates
+  const pushLocalCollider = (lx: number, lz: number, cw: number, cd: number, ch = h) => {
+    wallColliders.push({
+      x: cfg.cx + lx * dirZ,
+      z: cfg.cz + lz * dirZ,
+      w: cw,
+      d: cd,
+      h: ch,
+      isHouse: true,
+    });
+  };
+
+  // Perimeter Wall Colliders leaving center front doorway (width 3.2m) completely open
+  pushLocalCollider(0, -d / 2 + wallThick / 2, w, wallThick);
+  pushLocalCollider(-w / 2 + wallThick / 2, 0, wallThick, d);
+  pushLocalCollider(w / 2 - wallThick / 2, 0, wallThick, d);
+  pushLocalCollider(-w / 2 + frontSegW / 2, d / 2 - wallThick / 2, frontSegW, wallThick);
+  pushLocalCollider(w / 2 - frontSegW / 2, d / 2 - wallThick / 2, frontSegW, wallThick);
+
+  // Furnishings per Interior Kind
+  if (cfg.kind === 'house') {
+    // Cozy Living Rug
+    const rug = new THREE.Mesh(
+      new THREE.BoxGeometry(4.4, 0.04, 3.2),
+      new THREE.MeshStandardMaterial({ color: 0xb45309, roughness: 0.9 }),
+    );
+    rug.position.set(0, 0.14, 0.6);
+    g.add(rug);
+
+    // Bed on left back corner
+    const bedFrame = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.45, 3.0), woodMat);
+    bedFrame.position.set(-w / 2 + 1.8, 0.35, -d / 2 + 2.1);
+    const mattress = new THREE.Mesh(
+      new THREE.BoxGeometry(2.1, 0.25, 2.7),
+      new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.7 }),
+    );
+    mattress.position.set(-w / 2 + 1.8, 0.68, -d / 2 + 2.1);
+    const blanket = new THREE.Mesh(
+      new THREE.BoxGeometry(2.14, 0.27, 1.7),
+      new THREE.MeshStandardMaterial({ color: 0x0d9488, roughness: 0.75 }),
+    );
+    blanket.position.set(-w / 2 + 1.8, 0.69, -d / 2 + 2.55);
+    g.add(bedFrame, mattress, blanket);
+    pushLocalCollider(-w / 2 + 1.8, -d / 2 + 2.1, 2.3, 3.0, 1.0);
+
+    // Sofa & Coffee Table + TV on right
+    const sofa = new THREE.Mesh(
+      new THREE.BoxGeometry(3.0, 0.85, 1.0),
+      new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.75 }),
+    );
+    sofa.position.set(2.2, 0.52, -d / 2 + 1.3);
+    const table = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.45, 0.9), woodMat);
+    table.position.set(2.2, 0.34, -d / 2 + 2.8);
+    const tvStand = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.6, 0.5), darkMat);
+    tvStand.position.set(w / 2 - 1.5, 0.42, 0.5);
+    const tvScreen = new THREE.Mesh(
+      new THREE.BoxGeometry(0.1, 1.15, 2.0),
+      new THREE.MeshBasicMaterial({ color: 0x38bdf8 }),
+    );
+    tvScreen.position.set(w / 2 - 1.4, 1.35, 0.5);
+    g.add(sofa, table, tvStand, tvScreen);
+    pushLocalCollider(2.2, -d / 2 + 1.3, 3.0, 1.0, 1.0);
+
+    // Weapon Stash / Wardrobe Cabinet
+    const stashCabinet = new THREE.Mesh(new THREE.BoxGeometry(2.0, 2.3, 0.75), darkMat);
+    stashCabinet.position.set(0, 1.25, -d / 2 + 0.9);
+    const stashGlow = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.14, 0.1), accentMat);
+    stashGlow.position.set(0, 2.1, -d / 2 + 1.3);
+    g.add(stashCabinet, stashGlow);
+  } else {
+    // Counter Desk + Vendor NPC standing behind counter!
+    const counterW = w * 0.62;
+    const counterD = 1.15;
+    const counterZ = -1.6;
+    const counter = new THREE.Mesh(new THREE.BoxGeometry(counterW, 1.08, counterD), innerWallMat);
+    counter.position.set(0, 0.66, counterZ);
+    const counterTop = new THREE.Mesh(new THREE.BoxGeometry(counterW + 0.14, 0.1, counterD + 0.14), accentMat);
+    counterTop.position.set(0, 1.24, counterZ);
+    g.add(counter, counterTop);
+    pushLocalCollider(0, counterZ, counterW, counterD, 1.3);
+
+    // Vendor Salesperson NPC behind the counter
+    const vendorJacket =
+      cfg.kind === 'armory'
+        ? 0x3f6212
+        : cfg.kind === 'tech'
+          ? 0x0f766e
+          : cfg.kind === 'cafe'
+            ? 0xbe185d
+            : 0xd97706;
+    vendorRig = createCharacterMesh({
+      jacket: vendorJacket,
+      shirt: 0xf8fafc,
+      pants: 0x1e293b,
+      skin: 0xd49a6a,
+      hair: 0x111827,
+      sunglasses: cfg.kind === 'armory',
+    });
+    vendorRig.group.position.set(0, 0.12, counterZ - 1.15);
+    g.add(vendorRig.group);
+    vendorBaseYaw = cfg.facing === 'south' ? 0 : Math.PI;
+
+    // Kind-specific interior props
+    if (cfg.kind === 'armory') {
+      const rackPanel = new THREE.Mesh(new THREE.BoxGeometry(4.8, 2.1, 0.18), darkMat);
+      rackPanel.position.set(1.6, 2.2, -d / 2 + wallThick + 0.14);
+      g.add(rackPanel);
+      (['pistol', 'smg', 'shotgun', 'rifle', 'rpg'] as WeaponId[]).forEach((wid, wi) => {
+        const wm = createWeaponMesh(wid);
+        wm.position.set(-0.3 + wi * 0.95, 2.1, -d / 2 + wallThick + 0.3);
+        wm.rotation.y = Math.PI / 2;
+        wm.scale.setScalar(1.35);
+        g.add(wm);
+      });
+    } else if (cfg.kind === 'tech') {
+      const screenWall = new THREE.Mesh(
+        new THREE.BoxGeometry(4.2, 1.7, 0.15),
+        new THREE.MeshBasicMaterial({ color: 0x14b8a6 }),
+      );
+      screenWall.position.set(1.5, 2.35, -d / 2 + wallThick + 0.14);
+      const displayStandL = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.3, 1.1), darkMat);
+      displayStandL.position.set(-w / 2 + 1.5, 0.77, 0.8);
+      const displayStandR = displayStandL.clone();
+      displayStandR.position.x = w / 2 - 1.5;
+      g.add(screenWall, displayStandL, displayStandR);
+    } else {
+      // Indoor Café / Koshary dining sets + Espresso / Cooking counter equipment
+      const machine = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.85, 0.7), cfg.pool?.chromeMat ?? darkMat);
+      machine.position.set(1.4, 1.7, counterZ);
+      g.add(machine);
+      [-w / 2 + 1.8, w / 2 - 1.8].forEach((tx) => {
+        const tbl = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.65, 0.08, 10), woodMat);
+        tbl.position.set(tx, 0.86, 1.1);
+        const tblLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.8, 6), darkMat);
+        tblLeg.position.set(tx, 0.45, 1.1);
+        g.add(tbl, tblLeg);
+      });
+    }
+  }
+
+  return {
+    id: cfg.id,
+    kind: cfg.kind,
+    name: cfg.name,
+    roleTitle: cfg.roleTitle,
+    isSafehouse: cfg.kind === 'house',
+    group: g,
+    wallColliders,
+    bounds: {
+      minX: cfg.cx - w / 2 + 0.35,
+      maxX: cfg.cx + w / 2 - 0.35,
+      minZ: cfg.cz - d / 2 + 0.35,
+      maxZ: cfg.cz + d / 2 - 0.35,
+    },
+    interactPoint: {
+      x: cfg.cx,
+      z: cfg.cz + (interactLocalZ + 1.0) * dirZ,
+    },
+    doorSpot: {
+      x: cfg.cx,
+      z: cfg.cz + (d / 2 + 1.6) * dirZ,
+    },
+    vendorRig,
+    vendorBaseYaw,
+    options: cfg.options,
+  };
+}
+
+export function createAutoGarageBay(pool?: ModelAssetPool): THREE.Group {
+  const g = new THREE.Group();
+  const metalMat = pool?.darkMetalMat ?? new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.45, metalness: 0.75 });
+  const accentMat = new THREE.MeshStandardMaterial({
+    color: 0xf59e0b,
+    emissive: 0xf59e0b,
+    emissiveIntensity: 0.4,
+    roughness: 0.35,
+  });
+
+  // Roof Canopy + Steel Pillars (wide open front & back drive-through!)
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(9.6, 0.35, 9.0), metalMat);
+  roof.position.y = 4.5;
+  roof.castShadow = true;
+  g.add(roof);
+
+  const pGeo = new THREE.BoxGeometry(0.4, 4.5, 0.4);
+  [
+    [-4.4, -4.1],
+    [4.4, -4.1],
+    [-4.4, 4.1],
+    [4.4, 4.1],
+  ].forEach(([px, pz]) => {
+    const p = new THREE.Mesh(pGeo, accentMat);
+    p.position.set(px, 2.25, pz);
+    g.add(p);
+  });
+
+  const signTex = makeShopSignTexture('جراج الحريف · صيانة ونيترو', 'صيانة فورية · دهان سيارات · تيربو', '#09090b', '#f59e0b');
+  const sign = new THREE.Mesh(
+    new THREE.BoxGeometry(8.2, 1.2, 0.25),
+    new THREE.MeshBasicMaterial({ map: signTex }),
+  );
+  sign.position.set(0, 4.9, 4.55);
+  const signBack = sign.clone();
+  signBack.position.z = -4.55;
+  signBack.rotation.y = Math.PI;
+  g.add(sign, signBack);
+
+  const pad = new THREE.Mesh(
+    new THREE.RingGeometry(2.6, 3.2, 24),
+    new THREE.MeshBasicMaterial({ color: 0xf59e0b, side: THREE.DoubleSide, transparent: true, opacity: 0.8 }),
+  );
+  pad.rotation.x = -Math.PI / 2;
+  pad.position.y = 0.06;
+  g.add(pad);
+
+  return g;
+}
+

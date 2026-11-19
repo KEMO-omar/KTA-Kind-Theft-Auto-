@@ -52,10 +52,39 @@ export interface MissionInfo {
   isCoop?: boolean;
 }
 
+export type DriveCameraMode = 'chase' | 'wide' | 'hood';
+
+export interface ShopOption {
+  id: string;
+  label: { en: string; ar: string };
+  cost: number;
+  effectLabel: { en: string; ar: string };
+}
+
+export interface InteriorInteractPrompt {
+  shopId: string;
+  shopName: { en: string; ar: string };
+  roleTitle: { en: string; ar: string };
+  isSafehouse?: boolean;
+  options: ShopOption[];
+}
+
 export interface MinimapBlip {
   x: number;
   z: number;
-  type: 'vehicle' | 'police' | 'mission' | 'pickup' | 'target' | 'hostile' | 'story' | 'food' | 'buddy' | 'coop';
+  type:
+    | 'vehicle'
+    | 'police'
+    | 'mission'
+    | 'pickup'
+    | 'target'
+    | 'hostile'
+    | 'story'
+    | 'food'
+    | 'buddy'
+    | 'coop'
+    | 'house'
+    | 'shop';
 }
 
 export interface DialogueSubtitle {
@@ -92,6 +121,12 @@ export interface HudSnapshot {
   } | null;
   nearbyRestaurantPrompt: { name: { en: string; ar: string }; cost: number; heal: number } | null;
   nearbyVehiclePrompt: string | null;
+  insideBuildingName: { en: string; ar: string } | null;
+  interiorPrompt: InteriorInteractPrompt | null;
+  aimLocked: boolean;
+  aimTargetName: string | null;
+  isAiming: boolean;
+  driveCamMode: DriveCameraMode;
   bannerMessage: { text: string; tone: 'gold' | 'info' | 'alert' | 'success' } | null;
   subtitle: DialogueSubtitle | null;
   playerX: number;

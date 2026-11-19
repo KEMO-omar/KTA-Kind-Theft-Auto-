@@ -75,6 +75,35 @@ export const MinimapCanvas: React.FC<MinimapCanvasProps> = ({
       const p = toScreen(blip.x, blip.z);
       if (p.x < -10 || p.x > w + 10 || p.y < -10 || p.y > h + 10) return;
 
+      if (blip.type === 'house') {
+        const s = fullMap ? 8.5 : 6.4;
+        ctx.fillStyle = '#14b8a6';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y - s * 0.75);
+        ctx.lineTo(p.x + s * 0.65, p.y - s * 0.05);
+        ctx.lineTo(p.x + s * 0.45, p.y - s * 0.05);
+        ctx.lineTo(p.x + s * 0.45, p.y + s * 0.6);
+        ctx.lineTo(p.x - s * 0.45, p.y + s * 0.6);
+        ctx.lineTo(p.x - s * 0.45, p.y - s * 0.05);
+        ctx.lineTo(p.x - s * 0.65, p.y - s * 0.05);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        return;
+      }
+
+      if (blip.type === 'shop') {
+        const s = fullMap ? 7 : 5.4;
+        ctx.fillStyle = '#a855f7';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.1;
+        ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
+        ctx.strokeRect(p.x - s / 2, p.y - s / 2, s, s);
+        return;
+      }
+
       if (blip.type === 'food') {
         const s = fullMap ? 6.5 : 5;
         ctx.fillStyle = '#22c55e';

@@ -3,9 +3,11 @@ import { CityTextures } from './textures';
 import {
   createAspectBillboard,
   createAspectTexturedPlane,
+  createAutoGarageBay,
   createBreakableProp,
   createCafeSet,
   createEgyptFlagPole,
+  createEnterableInteriorBuilding,
   createHouseLOD,
   createPalmTreeLOD,
   createParkTreeLOD,
@@ -16,6 +18,7 @@ import {
   createStuntRamp,
   createTrafficLight,
   createWallBanner,
+  EnterableInteriorResult,
   ModelAssetPool,
 } from './models';
 
@@ -88,6 +91,13 @@ export interface MissionSpot {
   ringMesh: THREE.Mesh;
 }
 
+export interface GaragePad {
+  id: string;
+  name: { en: string; ar: string };
+  x: number;
+  z: number;
+}
+
 export interface BuiltCity {
   buildings: BuildingCollider[];
   ramps: RampCollider[];
@@ -95,6 +105,8 @@ export interface BuiltCity {
   restaurants: RestaurantSpot[];
   props: BreakablePropEntity[];
   missionSpots: MissionSpot[];
+  interiors: EnterableInteriorResult[];
+  garagePads: GaragePad[];
   lampBulbMats: THREE.MeshStandardMaterial[];
   buildingMats: THREE.MeshStandardMaterial[];
   neonMats: THREE.MeshStandardMaterial[];
@@ -112,6 +124,8 @@ export function buildCityWorld(scene: THREE.Scene, textures: CityTextures): Buil
   const restaurants: RestaurantSpot[] = [];
   const props: BreakablePropEntity[] = [];
   const missionSpots: MissionSpot[] = [];
+  const interiors: EnterableInteriorResult[] = [];
+  const garagePads: GaragePad[] = [];
   const lampBulbMats: THREE.MeshStandardMaterial[] = [];
   const neonMats: THREE.MeshStandardMaterial[] = [];
   const lods: THREE.LOD[] = [];
@@ -243,19 +257,25 @@ export function buildCityWorld(scene: THREE.Scene, textures: CityTextures): Buil
     }
   }
 
-  // Festive Cairo Street Banners along Main Boulevards (عيد.png & festive photo)
+  // Festive & Ad Street Banners along Main Boulevards
   const festivePlacements = [
     { slot: textures.brandAssets.eidBanner, x: -28, z: -56, ry: Math.PI / 2 },
     { slot: textures.brandAssets.festiveBanner, x: 28, z: -56, ry: Math.PI / 2 },
-    { slot: textures.brandAssets.eidBanner, x: 56, z: -28, ry: 0 },
-    { slot: textures.brandAssets.festiveBanner, x: -56, z: 28, ry: 0 },
+    { slot: textures.brandAssets.alarabiyaAd, x: 56, z: -28, ry: 0 },
+    { slot: textures.brandAssets.rowadAd, x: -56, z: 28, ry: 0 },
   ];
   festivePlacements.forEach((fp) => {
-    const arch = createStreetFestiveBanner(fp.slot, 12.6, 2.5, pool);
+    const arch = createStreetFestiveBanner(fp.slot, 12.6, 2.6, pool);
     arch.position.set(fp.x, 0.1, fp.z);
     arch.rotation.y = fp.ry;
     scene.add(arch);
   });
+
+  const registerInterior = (res: EnterableInteriorResult) => {
+    scene.add(res.group);
+    interiors.push(res);
+    res.wallColliders.forEach((wc) => buildings.push(wc));
+  };
 
   // Sidewalks, Curbs, Blocks & Street Props
   const sidewalkMat = pool.trackMat(new THREE.MeshStandardMaterial({ map: textures.sidewalk, roughness: 0.85 }));
@@ -335,18 +355,21 @@ export function buildCityWorld(scene: THREE.Scene, textures: CityTextures): Buil
         scene.add(basin, poolWater, spire);
         buildings.push({ x: bx, z: bz, w: 11, d: 11, h: 3 });
 
-        // Prominent Egyptian Flagpole in the Main Square!
+        // Prominent Egyptian Flagpole + Official Frame + Ad Stand in Main Square!
         const squareFlag = createEgyptFlagPole(textures.egyptFlag, 1.35, flagUniforms, pool);
         squareFlag.position.set(bx, 0.26, bz - 11);
         scene.add(squareFlag);
 
-        // Square Fence Sign + Wall Poster
         const wallFence = new THREE.Mesh(new THREE.BoxGeometry(10, 2.4, 0.4), fenceMat);
         wallFence.position.set(bx - 12, 1.4, bz + 17);
         scene.add(wallFence);
         const sqAd = createWallBanner(textures.brandAssets.bannerSquare, 2.1, true);
         sqAd.position.set(bx - 12, 1.45, bz + 17);
-        scene.add(sqAd);
+        const sisiSquareStand = createWallBanner(textures.brandAssets.sisiPortrait, 2.4, true);
+        sisiSquareStand.position.set(bx + 12, 1.6, bz + 16.5);
+        const fbSquareStand = createWallBanner(textures.brandAssets.fbBanner1, 2.2, true);
+        fbSquareStand.position.set(bx, 1.5, bz + 17);
+        scene.add(sqAd, sisiSquareStand, fbSquareStand);
 
         [
           [-14, -14],
@@ -392,12 +415,14 @@ export function buildCityWorld(scene: THREE.Scene, textures: CityTextures): Buil
 
         const fenceAd1 = createWallBanner(textures.brandAssets.bannerSquare, 2.1, true);
         fenceAd1.position.set(bx - 10, 1.4, bz + 17.5);
-        const fenceAd2 = createWallBanner(textures.brandAssets.poster1, 2.0, true);
+        const fenceAd2 = createWallBanner(textures.brandAssets.fbBanner2, 2.1, true);
         fenceAd2.position.set(bx + 10, 1.4, bz + 17.5);
-        scene.add(fenceAd1, fenceAd2);
+        const schoolWallPortrait = createWallBanner(textures.brandAssets.sisiPortrait, 2.6, false);
+        schoolWallPortrait.position.set(bx - 8, 4.5, bz - 1.9);
+        scene.add(fenceAd1, fenceAd2, schoolWallPortrait);
 
-        // Rooftop OG Banner on School Main Building
-        const schoolRoofAd = createAspectBillboard(textures.brandAssets.ogBanner, 3.2, pool, false);
+        // Rooftop Alarabiya Wide Ad on School Main Building
+        const schoolRoofAd = createAspectBillboard(textures.brandAssets.alarabiyaAd, 3.2, pool, false);
         schoolRoofAd.position.set(bx, 9.2, bz - 2.5);
         scene.add(schoolRoofAd);
 
@@ -440,15 +465,20 @@ export function buildCityWorld(scene: THREE.Scene, textures: CityTextures): Buil
         plazaFlagR.position.set(bx + 11, 0.26, bz + 12);
         scene.add(roofFlag, plazaFlagL, plazaFlagR);
 
-        // Street Poster on Government Side Wall
+        // Prominent Official Portrait & Street Banners on Government Complex
+        const govPortrait = createWallBanner(textures.brandAssets.sisiPortrait, 3.6, false);
+        govPortrait.position.set(bx, 9.6, bz + 6.1);
         const govBanner = createWallBanner(textures.brandAssets.bannerSquare, 3.2, false);
         govBanner.position.set(bx + 12.1, 5.0, bz - 3);
         govBanner.rotation.y = Math.PI / 2;
-        scene.add(govBanner);
+        const govRowad = createAspectTexturedPlane(textures.brandAssets.rowadAd, 3.0, { polygonOffset: true });
+        govRowad.position.set(bx - 12.1, 5.2, bz - 3);
+        govRowad.rotation.y = -Math.PI / 2;
+        scene.add(govPortrait, govBanner, govRowad);
         return;
       }
 
-      // 4. Residential Coastal Houses & Villas
+      // 4. Residential Coastal Houses + Enterable Player Safehouse ("بيت البطل") in block (-84, -28)!
       if ((ix === 0 && (iz === 0 || iz === 1)) || (ix === 3 && iz === 0)) {
         const yard = new THREE.Mesh(new THREE.BoxGeometry(39, 0.08, 39), grassMat);
         yard.position.set(bx, 0.22, bz);
@@ -462,6 +492,52 @@ export function buildCityWorld(scene: THREE.Scene, textures: CityTextures): Buil
           { dx: 10, dz: 10, rot: Math.PI, twoStory: true },
         ];
         housePositions.forEach((hp, hIdx) => {
+          // Put Player's walkable interior Safehouse right at (-74, -38) facing North (-Z toward spawn street)
+          if (ix === 0 && iz === 1 && hIdx === 1) {
+            registerInterior(
+              createEnterableInteriorBuilding({
+                id: 'player-house',
+                kind: 'house',
+                cx: bx + hp.dx,
+                cz: bz + hp.dz,
+                facing: 'north',
+                name: { en: 'Hero Safehouse', ar: 'بيت البطل (شقتك)' },
+                roleTitle: { en: 'Safehouse Stash & Rest', ar: 'الراحة، حفظ التقدم، وتجهيز السلاح' },
+                signTitleAr: 'بيت البطل · شقة الراحة',
+                signSubAr: 'ادخل جوا استريح، جهز درعك، واحفظ لعبك',
+                accentColor: 0x0d9488,
+                accentHex: '#2dd4bf',
+                bgHex: '#0f172a',
+                wallColor: 0xe7d8c5,
+                floorColor: 0x926239,
+                logoSlot: textures.brandAssets.logoA,
+                interiorPosterSlot: textures.brandAssets.sisiPortrait,
+                pool,
+                options: [
+                  {
+                    id: 'rest-save',
+                    label: { en: 'Rest & Full Heal + Save', ar: 'استريح واشفي 100% + حفظ' },
+                    cost: 0,
+                    effectLabel: { en: 'FREE · +100% HP', ar: 'مجاني · صحة كاملة' },
+                  },
+                  {
+                    id: 'stash-armor',
+                    label: { en: 'Equip Home Vest', ar: 'البس درع الحماية من الدولاب' },
+                    cost: 50,
+                    effectLabel: { en: '+65 Armor', ar: '+65 درع' },
+                  },
+                  {
+                    id: 'home-stash-rifle',
+                    label: { en: 'Grab Carbine & SMG', ar: 'اسحب الرشاش والآلي من الخزنة' },
+                    cost: 0,
+                    effectLabel: { en: 'FREE', ar: 'مجاني' },
+                  },
+                ],
+              }),
+            );
+            return;
+          }
+
           const tint = houseTints[(ix + iz + hIdx) % houseTints.length];
           const houseLod = createHouseLOD(textures.houseWall, textures.roofTile, tint, hp.twoStory, pool);
           houseLod.position.set(bx + hp.dx, 0.25, bz + hp.dz);
@@ -478,7 +554,7 @@ export function buildCityWorld(scene: THREE.Scene, textures: CityTextures): Buil
         return;
       }
 
-      // 5. Stunt Arena & Armory Lot at (28, 84) -> Giant OG Banner & Festive Square
+      // 5. Stunt Arena & Drive-In Auto Garage ("جراج الحريف") at (28, 84)
       if (ix === 2 && iz === 3) {
         const lot = new THREE.Mesh(
           new THREE.BoxGeometry(40, 0.06, 40),
@@ -489,26 +565,37 @@ export function buildCityWorld(scene: THREE.Scene, textures: CityTextures): Buil
         scene.add(lot);
 
         const ramp1 = createStuntRamp();
-        ramp1.position.set(bx - 8, 0.24, bz);
+        ramp1.position.set(bx - 10, 0.24, bz + 4);
         ramp1.rotation.y = 0;
         scene.add(ramp1);
-        ramps.push({ x: bx - 8, z: bz, yaw: 0, width: 5.5, length: 7.5, height: 2.3 });
+        ramps.push({ x: bx - 10, z: bz + 4, yaw: 0, width: 5.5, length: 7.5, height: 2.3 });
 
         const ramp2 = createStuntRamp();
-        ramp2.position.set(bx + 8, 0.24, bz);
+        ramp2.position.set(bx + 10, 0.24, bz + 4);
         ramp2.rotation.y = Math.PI;
         scene.add(ramp2);
-        ramps.push({ x: bx + 8, z: bz, yaw: Math.PI, width: 5.5, length: 7.5, height: 2.3 });
+        ramps.push({ x: bx + 10, z: bz + 4, yaw: Math.PI, width: 5.5, length: 7.5, height: 2.3 });
 
-        const bbOg = createAspectBillboard(textures.brandAssets.ogBanner, 3.6, pool, true);
-        bbOg.position.set(bx, 0.24, bz - 16);
+        // Drive-In Auto Service & Nitro Garage Bay!
+        const garage = createAutoGarageBay(pool);
+        garage.position.set(bx, 0.24, bz - 12);
+        scene.add(garage);
+        garagePads.push({
+          id: 'hereef-garage',
+          name: { en: "El-Hereef Auto Garage", ar: 'جراج الحريف لصيانة العربيات' },
+          x: bx,
+          z: bz - 12,
+        });
+
+        const bbOg = createAspectBillboard(textures.brandAssets.rowadAd, 3.6, pool, true);
+        bbOg.position.set(bx, 0.24, bz + 17);
         scene.add(bbOg);
-        addProp('cone', bx - 14, bz + 8);
-        addProp('cone', bx + 14, bz + 8);
+        addProp('cone', bx - 14, bz + 10);
+        addProp('cone', bx + 14, bz + 10);
         return;
       }
 
-      // 6. Aseela's Corniche Lounge & Waterfront Square at (84, -28)
+      // 6. Enterable Aseela's Corniche Café ("كافيه أصيلة") at (84, -28)
       if (ix === 3 && iz === 1) {
         const plaza = new THREE.Mesh(
           new THREE.BoxGeometry(38, 0.08, 38),
@@ -518,38 +605,76 @@ export function buildCityWorld(scene: THREE.Scene, textures: CityTextures): Buil
         plaza.receiveShadow = true;
         scene.add(plaza);
 
-        const rest = createRestaurantMesh(0xec4899, 'كافيه أصيلة على الكورنيش', textures.brandAssets.logoE);
-        rest.position.set(bx - 8, 0.24, bz - 10);
-        scene.add(rest);
-        buildings.push({ x: bx - 8, z: bz - 10, w: 8.8, d: 6.8, h: 4.5, isHouse: true });
+        registerInterior(
+          createEnterableInteriorBuilding({
+            id: 'aseela-cafe-interior',
+            kind: 'cafe',
+            cx: bx - 8,
+            cz: bz - 10,
+            facing: 'south',
+            name: { en: "Aseela's Corniche Café", ar: 'كافيه ومطعم أصيلة على الكورنيش' },
+            roleTitle: { en: 'Barista Counter & Fresh Grill', ar: 'كاشير الكافيه والمشروبات السخنة' },
+            signTitleAr: 'كافيه ومطعم أصيلة',
+            signSubAr: 'أجمد قهوة وقاعدة بحر · ادخل اطلب من جوا',
+            accentColor: 0xec4899,
+            accentHex: '#f472b6',
+            bgHex: '#0f172a',
+            wallColor: 0x334155,
+            floorColor: 0x78350f,
+            logoSlot: textures.brandAssets.logoE,
+            interiorPosterSlot: textures.brandAssets.fbBanner1,
+            pool,
+            options: [
+              {
+                id: 'cafe-coffee',
+                label: { en: 'Turkish Coffee & Pastry', ar: 'قهوة مظبوطة + كرواسون' },
+                cost: 30,
+                effectLabel: { en: '+45 HP', ar: '+45 صحة' },
+              },
+              {
+                id: 'cafe-feast',
+                label: { en: "Aseela's Special Sea Grill", ar: 'وجبة أصيلة البحرية الكاملة' },
+                cost: 65,
+                effectLabel: { en: '+100 HP', ar: 'صحة 100%' },
+              },
+            ],
+          }),
+        );
+
+        const cafePatio1 = createCafeSet(0xec4899);
+        cafePatio1.position.set(bx - 12, 0.24, bz - 3);
+        const cafePatio2 = createCafeSet(0xf59e0b);
+        cafePatio2.position.set(bx - 4, 0.24, bz - 3);
+        scene.add(cafePatio1, cafePatio2);
 
         const ring = new THREE.Mesh(
-          new THREE.RingGeometry(1.7, 2.2, 20),
+          new THREE.RingGeometry(1.5, 2.0, 20),
           new THREE.MeshBasicMaterial({ color: 0x22c55e, side: THREE.DoubleSide, transparent: true, opacity: 0.8 }),
         );
         ring.rotation.x = -Math.PI / 2;
-        ring.position.set(bx - 8, 0.28, bz - 2.5);
+        ring.position.set(bx - 8, 0.28, bz - 2.0);
         scene.add(ring);
         restaurants.push({
           id: 'aseela-cafe',
           name: { en: "Aseela's Corniche Café", ar: 'كافيه أصيلة على الكورنيش' },
           x: bx - 8,
-          z: bz - 2.5,
+          z: bz - 2.0,
           cost: 40,
           heal: 55,
           ringMesh: ring,
         });
 
-        // Waterfront Egyptian Flagpole + Festive Photo Stand
         const waterFlag = createEgyptFlagPole(textures.egyptFlag, 1.25, flagUniforms, pool);
         waterFlag.position.set(bx + 12, 0.26, bz - 10);
-        scene.add(waterFlag);
+        const bbWater = createAspectBillboard(textures.brandAssets.alarabiyaAd, 3.2, pool, true);
+        bbWater.position.set(bx + 8, 0.24, bz - 17);
+        scene.add(waterFlag, bbWater);
 
         const ramp = createStuntRamp();
-        ramp.position.set(bx + 8, 0.24, bz + 4);
+        ramp.position.set(bx + 8, 0.24, bz + 6);
         ramp.rotation.y = Math.PI / 2;
         scene.add(ramp);
-        ramps.push({ x: bx + 8, z: bz + 4, yaw: Math.PI / 2, width: 5.5, length: 7.5, height: 2.3 });
+        ramps.push({ x: bx + 8, z: bz + 6, yaw: Math.PI / 2, width: 5.5, length: 7.5, height: 2.3 });
 
         const palm1 = createPalmTreeLOD(1.2, pool);
         palm1.position.set(bx - 12, 0.24, bz + 12);
@@ -558,25 +683,56 @@ export function buildCityWorld(scene: THREE.Scene, textures: CityTextures): Buil
         return;
       }
 
-      // 7. Koshary El-Sultan Storefront at (28, -28)
+      // 7. Enterable Koshary El-Sultan ("كشري السلطان") + Tower Ads at (28, -28)
       if (ix === 2 && iz === 1) {
-        const rest = createRestaurantMesh(0xf59e0b, 'كشري السلطان', textures.brandAssets.logoA);
-        rest.position.set(bx - 9, 0.22, bz - 8);
-        scene.add(rest);
-        buildings.push({ x: bx - 9, z: bz - 8, w: 8.8, d: 6.8, h: 4.5, isHouse: true });
+        registerInterior(
+          createEnterableInteriorBuilding({
+            id: 'sultan-koshary-interior',
+            kind: 'koshary',
+            cx: bx - 9,
+            cz: bz - 9,
+            facing: 'south',
+            name: { en: 'Koshary El-Sultan', ar: 'مطعم كشري السلطان' },
+            roleTitle: { en: 'Koshary Chef & Takeaway Counter', ar: 'شيف الكشري والطواجن السخنة' },
+            signTitleAr: 'كشري وطواجن السلطان',
+            signSubAr: 'دقة وشطة أصلية · ادخل اطلب طاجنك',
+            accentColor: 0xf59e0b,
+            accentHex: '#fbbf24',
+            bgHex: '#09090b',
+            wallColor: 0xfef3c7,
+            floorColor: 0xd6d3d1,
+            logoSlot: textures.brandAssets.logoA,
+            interiorPosterSlot: textures.brandAssets.eidBanner,
+            pool,
+            options: [
+              {
+                id: 'koshary-bowl',
+                label: { en: 'Royal Koshary Bowl', ar: 'علبة كشري السلطان سوبر' },
+                cost: 35,
+                effectLabel: { en: '+60 HP', ar: '+60 صحة' },
+              },
+              {
+                id: 'koshary-tagen',
+                label: { en: 'Meat Tagen + Rice Pudding', ar: 'طاجن لحمة بالفرن + رز بلبن' },
+                cost: 60,
+                effectLabel: { en: '+100 HP + 25 Armor', ar: '+100 صحة و25 درع' },
+              },
+            ],
+          }),
+        );
 
         const ring = new THREE.Mesh(
-          new THREE.RingGeometry(1.7, 2.2, 20),
+          new THREE.RingGeometry(1.5, 2.0, 20),
           new THREE.MeshBasicMaterial({ color: 0x22c55e, side: THREE.DoubleSide, transparent: true, opacity: 0.8 }),
         );
         ring.rotation.x = -Math.PI / 2;
-        ring.position.set(bx - 9, 0.26, bz - 0.5);
+        ring.position.set(bx - 9, 0.26, bz - 1.5);
         scene.add(ring);
         restaurants.push({
           id: 'sultan-koshary',
           name: { en: 'Koshary El-Sultan', ar: 'كشري السلطان' },
           x: bx - 9,
-          z: bz - 0.5,
+          z: bz - 1.5,
           cost: 35,
           heal: 60,
           ringMesh: ring,
@@ -589,11 +745,10 @@ export function buildCityWorld(scene: THREE.Scene, textures: CityTextures): Buil
         scene.add(mesh);
         buildings.push({ x: bx + 10, z: bz + 4, w: 16, d: 20, h: 26 });
 
-        // Wide OG Banner + Posters on skyscraper facade
         const ogFacade = createAspectTexturedPlane(textures.brandAssets.ogBanner, 5.2, { polygonOffset: true });
         ogFacade.position.set(bx + 10, 12, bz - 6.08);
         ogFacade.rotation.y = Math.PI;
-        const pWall = createAspectTexturedPlane(textures.brandAssets.poster1, 4.2, { polygonOffset: true });
+        const pWall = createAspectTexturedPlane(textures.brandAssets.amazonPoster, 4.4, { polygonOffset: true });
         pWall.position.set(bx + 1.9, 6.5, bz + 4);
         pWall.rotation.y = -Math.PI / 2;
         scene.add(ogFacade, pWall);
@@ -642,7 +797,101 @@ export function buildCityWorld(scene: THREE.Scene, textures: CityTextures): Buil
         return;
       }
 
-      // 9. Downtown High-Rises with Giant Rooftop OG Banners, Square Wall Signs & A/E Shop Logos
+      // 8b. Downtown Shopping Strip (Armory + Abqarino Tech & Apparel) at (28, 28)
+      if (ix === 2 && iz === 2) {
+        registerInterior(
+          createEnterableInteriorBuilding({
+            id: 'moallem-armory',
+            kind: 'armory',
+            cx: bx - 9,
+            cz: bz - 10,
+            facing: 'north',
+            name: { en: "El-Moallem Armory", ar: 'محل أسلحة المعلم' },
+            roleTitle: { en: 'Licensed Arms & Armor Dealer', ar: 'تاجر الأسلحة والدروع الثقيلة' },
+            signTitleAr: 'سلاحك · محل أسلحة المعلم',
+            signSubAr: 'دروع · ذخيرة · قاذف RPG · ادخل اشتري',
+            accentColor: 0xef4444,
+            accentHex: '#f87171',
+            bgHex: '#09090b',
+            wallColor: 0x334155,
+            floorColor: 0x1e293b,
+            logoSlot: textures.brandAssets.logoA,
+            interiorPosterSlot: textures.brandAssets.fbBanner2,
+            pool,
+            options: [
+              {
+                id: 'buy-armor',
+                label: { en: 'Heavy Kevlar Vest', ar: 'درع واقي ثقيل' },
+                cost: 120,
+                effectLabel: { en: '+100 Armor', ar: '+100 درع' },
+              },
+              {
+                id: 'buy-rpg-equip',
+                label: { en: 'Equip RPG + Heavy Pack', ar: 'استلم قاذف RPG وقوة نار' },
+                cost: 280,
+                effectLabel: { en: 'RPG + 50 Armor', ar: 'RPG + 50 درع' },
+              },
+            ],
+          }),
+        );
+
+        registerInterior(
+          createEnterableInteriorBuilding({
+            id: 'abqarino-tech-shop',
+            kind: 'tech',
+            cx: bx + 9,
+            cz: bz - 10,
+            facing: 'north',
+            name: { en: "Abqarino Tech & Style", ar: 'متجر عبقرينو للتكنولوجيا واللبس' },
+            roleTitle: { en: 'Street Tech, Hacking & Gear', ar: 'عبقرينو ستور · هاك الشرطة ولبس سريع' },
+            signTitleAr: 'متجر عبقرينو · تك وستايل',
+            signSubAr: 'مسح نجوم الشرطة · جاكيت حماية · سرعة',
+            accentColor: 0x14b8a6,
+            accentHex: '#2dd4bf',
+            bgHex: '#0f172a',
+            wallColor: 0x1e293b,
+            floorColor: 0x0f172a,
+            logoSlot: textures.brandAssets.logoE,
+            interiorPosterSlot: textures.brandAssets.amazonPoster,
+            pool,
+            options: [
+              {
+                id: 'hack-wanted',
+                label: { en: 'Police Radar Jammer', ar: 'هكر يمسح نجوم الشرطة فوراً' },
+                cost: 180,
+                effectLabel: { en: '0 Wanted Stars', ar: 'تصفير المطاردة' },
+              },
+              {
+                id: 'tech-boost',
+                label: { en: 'Smart Medkit + Tech Vest', ar: 'باقة شفاء ودرع التكنولوجيا' },
+                cost: 140,
+                effectLabel: { en: '+80 HP · +60 Armor', ar: '+80 صحة · +60 درع' },
+              },
+            ],
+          }),
+        );
+
+        const tower = new THREE.Mesh(new THREE.BoxGeometry(30, 28, 15), buildingMats[1]);
+        tower.position.set(bx, 0.2 + 14, bz + 9);
+        tower.castShadow = true;
+        tower.receiveShadow = true;
+        scene.add(tower);
+        buildings.push({ x: bx, z: bz + 9, w: 30, d: 15, h: 28 });
+
+        const mallAlarabiya = createAspectTexturedPlane(textures.brandAssets.alarabiyaAd, 4.6, { polygonOffset: true });
+        mallAlarabiya.position.set(bx - 7, 10, bz + 1.4);
+        mallAlarabiya.rotation.y = Math.PI;
+        const mallFb1 = createAspectTexturedPlane(textures.brandAssets.fbBanner1, 4.2, { polygonOffset: true });
+        mallFb1.position.set(bx + 7, 10, bz + 1.4);
+        mallFb1.rotation.y = Math.PI;
+        const mallAmazon = createAspectTexturedPlane(textures.brandAssets.amazonPoster, 4.2, { polygonOffset: true });
+        mallAmazon.position.set(bx + 15.1, 8, bz + 9);
+        mallAmazon.rotation.y = Math.PI / 2;
+        scene.add(mallAlarabiya, mallFb1, mallAmazon);
+        return;
+      }
+
+      // 9. Downtown High-Rises with Giant Rooftop & Wall Ads (All 14 URLs Featured!)
       const seed = (ix * 7 + iz * 13) % 4;
       const subLayouts = [
         [
@@ -663,6 +912,20 @@ export function buildCityWorld(scene: THREE.Scene, textures: CityTextures): Buil
           { dx: 9.5, dz: -9.5, w: 15, d: 15, h: 32 },
         ],
       ][seed];
+
+      const wideAdCycle = [
+        textures.brandAssets.ogBanner,
+        textures.brandAssets.alarabiyaAd,
+        textures.brandAssets.rowadAd,
+      ];
+      const wallAdCycle = [
+        textures.brandAssets.fbBanner1,
+        textures.brandAssets.fbBanner2,
+        textures.brandAssets.amazonPoster,
+        textures.brandAssets.bannerSquare,
+        textures.brandAssets.poster1,
+        textures.brandAssets.poster2,
+      ];
 
       subLayouts.forEach((b, bIdx) => {
         const matIdx = (ix + iz + bIdx) % buildingMats.length;
@@ -692,26 +955,27 @@ export function buildCityWorld(scene: THREE.Scene, textures: CityTextures): Buil
           scene.add(trim);
         }
 
-        // Attach street-level storefront signs (A.png, E.png, bannerSquare, poster1/2) & rooftop billboards!
         if (bIdx === 0) {
           const storeLogo = (ix + iz) % 2 === 0 ? textures.brandAssets.logoA : textures.brandAssets.logoE;
           const shopSign = createAspectTexturedPlane(storeLogo, 2.5, { polygonOffset: true });
           shopSign.position.set(bx + b.dx, 3.0, bz + b.dz + b.d / 2 + 0.08);
           scene.add(shopSign);
 
-          const wallSquare = createAspectTexturedPlane(textures.brandAssets.bannerSquare, 4.0, { polygonOffset: true });
-          wallSquare.position.set(bx + b.dx + b.w / 2 + 0.08, 6.5, bz + b.dz);
-          wallSquare.rotation.y = Math.PI / 2;
-          scene.add(wallSquare);
+          const wallAd = wallAdCycle[(ix * 3 + iz) % wallAdCycle.length];
+          const wallPlane = createAspectTexturedPlane(wallAd, 4.2, { polygonOffset: true });
+          wallPlane.position.set(bx + b.dx + b.w / 2 + 0.08, 6.5, bz + b.dz);
+          wallPlane.rotation.y = Math.PI / 2;
+          scene.add(wallPlane);
 
           if (b.h >= 28) {
-            const roofOg = createAspectBillboard(textures.brandAssets.ogBanner, 4.2, pool, false);
+            const roofSlot = wideAdCycle[(ix + iz) % wideAdCycle.length];
+            const roofOg = createAspectBillboard(roofSlot, 4.2, pool, false);
             roofOg.position.set(bx + b.dx, 0.8 + b.h, bz + b.dz);
             scene.add(roofOg);
           }
         } else if (bIdx === 1) {
-          const posterSlot = (ix + iz) % 2 === 0 ? textures.brandAssets.poster1 : textures.brandAssets.poster2;
-          const wallPoster = createAspectTexturedPlane(posterSlot, 3.8, { polygonOffset: true });
+          const posterSlot = wallAdCycle[(ix + iz * 2 + 1) % wallAdCycle.length];
+          const wallPoster = createAspectTexturedPlane(posterSlot, 4.0, { polygonOffset: true });
           wallPoster.position.set(bx + b.dx, 5.2, bz + b.dz - b.d / 2 - 0.08);
           wallPoster.rotation.y = Math.PI;
           scene.add(wallPoster);
@@ -721,14 +985,19 @@ export function buildCityWorld(scene: THREE.Scene, textures: CityTextures): Buil
       });
 
       if (ix === 2 && iz === 0) {
-        const bb = createAspectBillboard(textures.brandAssets.ogBanner, 3.8, pool, true);
+        const bb = createAspectBillboard(textures.brandAssets.rowadAd, 3.8, pool, true);
         bb.position.set(bx, 0.24, bz + 18);
         scene.add(bb);
       }
       if (ix === 0 && iz === 2) {
-        const bbFest = createAspectBillboard(textures.brandAssets.festiveBanner, 3.8, pool, true);
+        const bbFest = createAspectBillboard(textures.brandAssets.fbBanner2, 3.8, pool, true);
         bbFest.position.set(bx, 0.24, bz - 17);
         scene.add(bbFest);
+      }
+      if (ix === 3 && iz === 2) {
+        const bbAmazon = createAspectBillboard(textures.brandAssets.amazonPoster, 4.0, pool, true);
+        bbAmazon.position.set(bx, 0.24, bz - 18);
+        scene.add(bbAmazon);
       }
     });
   });
@@ -851,6 +1120,8 @@ export function buildCityWorld(scene: THREE.Scene, textures: CityTextures): Buil
     restaurants,
     props,
     missionSpots,
+    interiors,
+    garagePads,
     lampBulbMats,
     buildingMats,
     neonMats,

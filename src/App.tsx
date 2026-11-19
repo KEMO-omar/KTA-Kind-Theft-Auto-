@@ -153,6 +153,9 @@ export function App() {
           onCycleRadio={() => engineRef.current?.cycleRadio()}
           onCycleTime={() => engineRef.current?.cycleTimeOfDay()}
           onToggleBuddy={() => engineRef.current?.toggleBuddyFollow()}
+          onCycleDriveCam={() => engineRef.current?.cycleDriveCameraMode()}
+          onToggleAim={() => engineRef.current?.toggleAimMode()}
+          onExecuteShopOption={(shopId, optionId) => engineRef.current?.executeShopOption(shopId, optionId)}
           onRespawn={() => engineRef.current?.respawnPlayer()}
           onToggleVehicle={() => engineRef.current?.toggleVehicleEntry()}
           onStartMission={() => engineRef.current?.tryStartNearbyMission()}

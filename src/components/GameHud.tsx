@@ -1,16 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Camera,
   Car,
   ChevronLeft,
   ChevronRight,
   Crosshair,
+  Eye,
   Flame,
   Gamepad2,
   Heart,
+  Home,
   Menu,
   Moon,
   Radio,
   Shield,
+  ShoppingBag,
   Star,
   Sun,
   Sunset,
@@ -36,6 +40,9 @@ interface GameHudProps {
   onCycleRadio: () => void;
   onCycleTime: () => void;
   onToggleBuddy: () => void;
+  onCycleDriveCam: () => void;
+  onToggleAim: () => void;
+  onExecuteShopOption: (shopId: string, optionId: string) => void;
   onRespawn: () => void;
   onToggleVehicle: () => void;
   onStartMission: () => void;
@@ -63,6 +70,9 @@ export const GameHud: React.FC<GameHudProps> = ({
   onCycleRadio,
   onCycleTime,
   onToggleBuddy,
+  onCycleDriveCam,
+  onToggleAim,
+  onExecuteShopOption,
   onRespawn,
   onToggleVehicle,
   onStartMission,
@@ -235,7 +245,48 @@ export const GameHud: React.FC<GameHudProps> = ({
                 </button>
               )}
 
-              {hud.nearbyRestaurantPrompt && !hud.inVehicle && (
+              {hud.insideBuildingName && !hud.inVehicle && (
+                <div className="px-2.5 py-1.5 rounded-lg bg-neutral-950/95 border border-teal-400/50 text-xs font-bold text-teal-300 flex items-center gap-1.5 max-w-[245px]">
+                  <Home className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">
+                    {t.insideLabel} {hud.insideBuildingName[language]}
+                  </span>
+                </div>
+              )}
+
+              {hud.interiorPrompt && (
+                <div className="p-2.5 rounded-lg bg-neutral-950/95 border border-amber-400/60 text-white max-w-[265px] space-y-1.5 shadow-xl">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300">
+                    {hud.interiorPrompt.isSafehouse ? (
+                      <Home className="w-3.5 h-3.5 shrink-0 text-teal-400" />
+                    ) : (
+                      <ShoppingBag className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                    )}
+                    <span className="truncate">{hud.interiorPrompt.shopName[language]}</span>
+                  </div>
+                  <div className="text-[10px] text-neutral-400">{hud.interiorPrompt.roleTitle[language]}</div>
+                  <div className="flex flex-col gap-1">
+                    {hud.interiorPrompt.options.map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => onExecuteShopOption(hud.interiorPrompt!.shopId, opt.id)}
+                        className="w-full px-2 py-1.5 rounded bg-neutral-900 hover:bg-neutral-800 border border-white/10 hover:border-amber-400/60 flex items-center justify-between gap-2 text-start text-[11px] cursor-pointer transition-colors"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-semibold text-white truncate">{opt.label[language]}</div>
+                          <div className="text-[10px] text-teal-300">{opt.effectLabel[language]}</div>
+                        </div>
+                        <span className="font-hud text-[11px] font-bold text-emerald-400 shrink-0 tabular-nums">
+                          {opt.cost === 0 ? (language === 'ar' ? 'مجاني' : 'FREE') : `$${opt.cost}`}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {hud.nearbyRestaurantPrompt && !hud.inVehicle && !hud.interiorPrompt && (
                 <button
                   type="button"
                   onClick={onBuyFood}
@@ -334,9 +385,49 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       </div>
 
+      {/* Precision Aiming Crosshair Reticle (On Foot) */}
+      {!hud.inVehicle && !hud.isWasted && (
+        <div className="pointer-events-none fixed inset-0 flex items-center justify-center z-0">
+          <div className="relative flex flex-col items-center">
+            <div
+              className={`transition-transform duration-100 flex items-center justify-center ${
+                hud.isAiming ? 'scale-90' : 'scale-100'
+              }`}
+            >
+              <svg
+                width="34"
+                height="34"
+                viewBox="0 0 34 34"
+                className={hud.aimLocked ? 'text-rose-400' : hud.isAiming ? 'text-amber-300' : 'text-white/75'}
+              >
+                <circle
+                  cx="17"
+                  cy="17"
+                  r={hud.isAiming ? '7' : '10'}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeDasharray={hud.aimLocked ? 'none' : '4 3'}
+                />
+                <circle cx="17" cy="17" r="2" fill="currentColor" />
+                <line x1="17" y1="2" x2="17" y2="7" stroke="currentColor" strokeWidth="1.5" />
+                <line x1="17" y1="27" x2="17" y2="32" stroke="currentColor" strokeWidth="1.5" />
+                <line x1="2" y1="17" x2="7" y2="17" stroke="currentColor" strokeWidth="1.5" />
+                <line x1="27" y1="17" x2="32" y2="17" stroke="currentColor" strokeWidth="1.5" />
+              </svg>
+            </div>
+            {hud.aimTargetName && (
+              <span className="mt-1 px-1.5 py-0.5 rounded bg-neutral-950/85 text-[10px] font-bold text-rose-300 border border-rose-500/40">
+                {hud.aimTargetName}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Transient Center Banner */}
       {hud.bannerMessage && (
-        <div className="self-center px-5 py-2 rounded-lg bg-neutral-950/95 border border-amber-400/50 shadow-xl text-center">
+        <div className="self-center px-5 py-2 rounded-lg bg-neutral-950/95 border border-amber-400/50 shadow-xl text-center z-10">
           <div
             className={`font-display text-base sm:text-xl font-bold tracking-wide ${
               hud.bannerMessage.tone === 'success'
@@ -353,7 +444,7 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       )}
 
-      {/* Bottom Center: Subtitles + Speedometer + Compact Single Weapon Switcher */}
+      {/* Bottom Center: Subtitles + Speedometer + Compact Weapon & Angle Switcher */}
       <div className="flex flex-col items-center gap-2 pb-1">
         {hud.subtitle && (
           <div className="max-w-lg px-4 py-2 rounded-lg bg-neutral-950/92 border border-white/15 text-center shadow-lg">
@@ -377,6 +468,15 @@ export const GameHud: React.FC<GameHudProps> = ({
               >
                 HP {hud.vehicleHp}%
               </span>
+              <button
+                type="button"
+                onClick={onCycleDriveCam}
+                className="flex items-center gap-1 px-2 py-0.5 rounded bg-neutral-900 hover:bg-neutral-800 border border-white/15 text-[11px] font-semibold text-amber-300 cursor-pointer whitespace-nowrap"
+                title="C"
+              >
+                <Camera className="w-3 h-3" />
+                <span>{t.camModeNames[hud.driveCamMode]}</span>
+              </button>
               {!showTouch && (
                 <span className="text-[11px] text-neutral-300 hidden md:inline">{t.exitVehicleHint}</span>
               )}
@@ -409,6 +509,20 @@ export const GameHud: React.FC<GameHudProps> = ({
               {isRtl ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             </button>
 
+            {!showTouch && !hud.inVehicle && (
+              <button
+                type="button"
+                onClick={onToggleAim}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border-s border-white/10 cursor-pointer whitespace-nowrap ${
+                  hud.isAiming ? 'text-amber-300 bg-neutral-900' : 'text-neutral-200 hover:bg-neutral-800'
+                }`}
+                title="V / Right-Click"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>{t.aimBtn}</span>
+              </button>
+            )}
+
             {!showTouch && (
               <button
                 type="button"
@@ -433,6 +547,8 @@ export const GameHud: React.FC<GameHudProps> = ({
           onFire={onTouchFire}
           onJumpOrDrift={onTouchJumpOrDrift}
           onToggleVehicle={onToggleVehicle}
+          onToggleAim={onToggleAim}
+          onCycleDriveCam={onCycleDriveCam}
         />
       )}
 

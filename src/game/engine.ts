@@ -3,7 +3,9 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import {
   CharacterProfile,
   DialogueSubtitle,
+  DriveCameraMode,
   HudSnapshot,
+  InteriorInteractPrompt,
   Language,
   MinimapBlip,
   MissionInfo,
@@ -15,7 +17,14 @@ import {
 } from '../types/game';
 import { CityTextures, createCityTextures } from './textures';
 import { buildCityWorld, BuiltCity, ROAD_CENTERS, WORLD_LIMIT } from './city';
-import { CharacterRig, createCharacterMesh, createPickupMesh, createVehicleMesh, VehicleRig } from './models';
+import {
+  CharacterRig,
+  createCharacterMesh,
+  createPickupMesh,
+  createVehicleMesh,
+  EnterableInteriorResult,
+  VehicleRig,
+} from './models';
 import { soundEngine } from './audio';
 import { calculateLevel } from './saveSystem';
 
@@ -30,6 +39,9 @@ interface VehicleEntity {
   vy: number;
   yaw: number;
   speed: number;
+  prevSpeed: number;
+  chassisPitch: number;
+  chassisRoll: number;
   maxSpeed: number;
   accel: number;
   hp: number;
@@ -70,6 +82,7 @@ interface PooledProjectile {
   y: number;
   z: number;
   vx: number;
+  vy: number;
   vz: number;
   life: number;
   damage: number;
@@ -133,7 +146,9 @@ export class KtaGameEngine {
   private playerX = -28;
   private playerY = 0;
   private playerZ = -48;
+  private playerVx = 0;
   private playerVy = 0;
+  private playerVz = 0;
   private playerYaw = 0;
   private walkPhase = 0;
   private health = 100;
@@ -178,7 +193,19 @@ export class KtaGameEngine {
   private keys = new Set<string>();
   private touchInput = { x: 0, y: 0, boost: false };
   private touchFiring = false;
+  private touchAiming = false;
   private mouseFiring = false;
+  private rightMouseAiming = false;
+  private isAimingToggle = false;
+  private aimTarget: { x: number; y: number; z: number; label: string; isEnemy: boolean } | null = null;
+
+  private driveCamMode: DriveCameraMode = 'chase';
+  private driveCamRelYaw = 0;
+  private driveCamRecenterDelay = 0;
+  private smoothedDriveCamYaw = 0;
+
+  private currentInterior: EnterableInteriorResult | null = null;
+  private announcedInteriorId: string | null = null;
   private driftSmokeTimer = 0;
 
   private storyChapter = 1;
@@ -327,6 +354,7 @@ export class KtaGameEngine {
         y: 0,
         z: 0,
         vx: 0,
+        vy: 0,
         vz: 0,
         life: 0,
         damage: 0,
@@ -556,6 +584,9 @@ export class KtaGameEngine {
       vy: 0,
       yaw,
       speed: 0,
+      prevSpeed: 0,
+      chassisPitch: 0,
+      chassisRoll: 0,
       maxSpeed: spec.maxSpeed,
       accel: spec.accel,
       hp: 100,
@@ -664,10 +695,15 @@ export class KtaGameEngine {
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
     this.renderer.domElement.addEventListener('pointerdown', this.handlePointerDown);
+    this.renderer.domElement.addEventListener('contextmenu', this.handleContextMenu);
     window.addEventListener('pointermove', this.handlePointerMove);
     window.addEventListener('pointerup', this.handlePointerUp);
     this.renderer.domElement.addEventListener('webglcontextlost', this.handleContextLost);
   }
+
+  private handleContextMenu = (e: MouseEvent) => {
+    e.preventDefault();
+  };
 
   private handleContextLost = (e: Event) => {
     e.preventDefault();
@@ -697,6 +733,8 @@ export class KtaGameEngine {
     if (code === 'KeyF') this.toggleVehicleEntry();
     else if (code === 'KeyE') this.handleInteractKey();
     else if (code === 'KeyG') this.toggleBuddyFollow();
+    else if (code === 'KeyC') this.cycleDriveCameraMode();
+    else if (code === 'KeyV') this.toggleAimMode();
     else if (code === 'KeyR') this.cycleRadio();
     else if (code === 'KeyT') this.cycleTimeOfDay();
     else if (code === 'KeyH') this.honkHorn();
@@ -716,6 +754,15 @@ export class KtaGameEngine {
   private handlePointerDown = (e: PointerEvent) => {
     soundEngine.unlock();
     if (this.paused || this.isWasted) return;
+    if (e.button === 2) {
+      this.rightMouseAiming = true;
+      this.draggingCam = true;
+      this.pointerDownX = e.clientX;
+      this.pointerDownY = e.clientY;
+      this.pointerMoved = false;
+      this.emitHud();
+      return;
+    }
     if (e.button === 0) {
       this.draggingCam = true;
       this.pointerDownX = e.clientX;
@@ -732,11 +779,25 @@ export class KtaGameEngine {
     if (Math.hypot(dx, dy) > 5) this.pointerMoved = true;
     this.pointerDownX = e.clientX;
     this.pointerDownY = e.clientY;
-    this.cameraOrbitYaw -= dx * 0.0075;
-    this.cameraPitch = THREE.MathUtils.clamp(this.cameraPitch + dy * 0.004, 0.08, 0.72);
+
+    if (this.drivenVehicle) {
+      this.driveCamRelYaw -= dx * 0.0085;
+      this.driveCamRecenterDelay = 2.0;
+      this.cameraPitch = THREE.MathUtils.clamp(this.cameraPitch + dy * 0.0038, 0.08, 0.65);
+    } else {
+      const sens = this.isAimActive() ? 0.0052 : 0.0082;
+      this.cameraOrbitYaw -= dx * sens;
+      this.cameraPitch = THREE.MathUtils.clamp(this.cameraPitch + dy * (sens * 0.55), -0.15, 0.72);
+    }
   };
 
   private handlePointerUp = (e: PointerEvent) => {
+    if (e.button === 2) {
+      this.rightMouseAiming = false;
+      this.draggingCam = false;
+      this.emitHud();
+      return;
+    }
     if (this.draggingCam && !this.pointerMoved && e.pointerType !== 'touch' && !this.drivenVehicle && !this.paused && !this.isWasted) {
       this.triggerAction();
     }
@@ -900,12 +961,218 @@ export class KtaGameEngine {
     }
   }
 
+  public setTouchAim(aiming: boolean) {
+    this.touchAiming = aiming;
+    this.emitHud();
+  }
+
+  public toggleAimMode() {
+    if (this.drivenVehicle) return;
+    this.isAimingToggle = !this.isAimingToggle;
+    this.emitHud();
+  }
+
+  private isAimActive(): boolean {
+    return !this.drivenVehicle && (this.isAimingToggle || this.rightMouseAiming || this.touchAiming);
+  }
+
+  public cycleDriveCameraMode() {
+    const order: DriveCameraMode[] = ['chase', 'wide', 'hood'];
+    this.driveCamMode = order[(order.indexOf(this.driveCamMode) + 1) % order.length];
+    this.driveCamRelYaw = 0;
+    const labels: Record<DriveCameraMode, { en: string; ar: string }> = {
+      chase: { en: 'Chase Camera', ar: 'زاوية قريبة خلف العربية' },
+      wide: { en: 'Wide Panoramic Camera', ar: 'زاوية بانوراما واسعة' },
+      hood: { en: 'Hood First-Person View', ar: 'منظور الكبوت الأمامي' },
+    };
+    this.showBanner(labels[this.driveCamMode][this.language], 'info', 1.6);
+    this.emitHud();
+  }
+
   public setTouchJumpOrDrift(active: boolean) {
     if (active) this.keys.add('Space');
     else this.keys.delete('Space');
   }
 
+  private getActiveInteriorPrompt(): InteriorInteractPrompt | null {
+    const px = this.getPlayerPosX();
+    const pz = this.getPlayerPosZ();
+
+    if (this.drivenVehicle) {
+      for (const g of this.city.garagePads) {
+        if (Math.hypot(g.x - px, g.z - pz) < 5.5) {
+          return {
+            shopId: g.id,
+            shopName: g.name,
+            roleTitle: { en: 'Drive-In Auto Service & Nitro', ar: 'سمكرة، دهان، وصيانة فورية' },
+            options: [
+              {
+                id: 'repair-car',
+                label: { en: 'Full Body & Engine Repair', ar: 'سمكرة وتصليح العربية 100%' },
+                cost: 80,
+                effectLabel: { en: '100% Vehicle HP', ar: 'صحة 100%' },
+              },
+              {
+                id: 'paint-nitro',
+                label: { en: 'Custom Metallic Paint + Tune', ar: 'رش لون جديد + تظبيط' },
+                cost: 140,
+                effectLabel: { en: 'New Paint + 100% HP', ar: 'لون جديد + تصليح' },
+              },
+            ],
+          };
+        }
+      }
+      return null;
+    }
+
+    if (this.currentInterior) {
+      return {
+        shopId: this.currentInterior.id,
+        shopName: this.currentInterior.name,
+        roleTitle: this.currentInterior.roleTitle,
+        isSafehouse: this.currentInterior.isSafehouse,
+        options: this.currentInterior.options,
+      };
+    }
+
+    return null;
+  }
+
+  public executeShopOption(shopId: string, optionId: string) {
+    if (this.paused || this.isWasted) return;
+
+    if (shopId === 'hereef-garage' && this.drivenVehicle) {
+      const cost = optionId === 'paint-nitro' ? 140 : 80;
+      if (this.cash < cost) {
+        this.showBanner(this.language === 'ar' ? 'مش معاك فلوس كفاية!' : 'Not enough cash!', 'alert', 2);
+        return;
+      }
+      this.cash -= cost;
+      const v = this.drivenVehicle;
+      v.hp = 100;
+      if (optionId === 'paint-nitro') {
+        const colors = [0xef4444, 0x0ea5e9, 0x10b981, 0xf59e0b, 0xa855f7, 0xec4899, 0xf8fafc];
+        const nextHex = colors[Math.floor(Math.random() * colors.length)];
+        v.rig.bodyMat.color.setHex(nextHex);
+        this.spawnBurst(v.x, 1.1, v.z, nextHex, 14, 7);
+        this.showBanner(this.language === 'ar' ? 'لون جديد والعربية رجعت وكالة!' : 'Fresh Paint & Full Repair!', 'success', 2.5);
+      } else {
+        this.spawnBurst(v.x, 1.1, v.z, 0xfbbf24, 10, 6);
+        this.showBanner(this.language === 'ar' ? 'العربية اتصلحت 100%!' : 'Vehicle Repaired 100%!', 'success', 2.2);
+      }
+      soundEngine.playAction('repair');
+      this.speak(
+        this.language === 'ar' ? 'الأسطى حريف' : 'Master Hereef',
+        this.language === 'ar' ? 'اتكل على الله يا وحش، المكنة بتزأر تاني!' : 'Engine purring like brand new, boss!',
+        '#f59e0b',
+        3.2,
+      );
+      this.triggerAutoSave();
+      this.emitHud();
+      return;
+    }
+
+    const interior = this.city.interiors.find((item) => item.id === shopId);
+    const opt = interior?.options.find((o) => o.id === optionId);
+    if (!interior || !opt) return;
+
+    if (this.cash < opt.cost) {
+      this.showBanner(this.language === 'ar' ? 'مش معاك فلوس كفاية!' : 'Not enough cash!', 'alert', 2.2);
+      return;
+    }
+    this.cash -= opt.cost;
+
+    if (optionId === 'rest-save') {
+      this.health = this.maxHealth;
+      soundEngine.playAction('pickup');
+      this.showBanner(this.language === 'ar' ? 'استريحت 100% وتم حفظ لعبك!' : 'Rested 100% & Game Saved!', 'success', 2.6);
+      this.speak(
+        this.character.name[this.language],
+        this.language === 'ar' ? 'نومة سريعة في البيت ترد الروح. يلا ننزل الشارع!' : 'Feeling fresh back at the safehouse. Ready to roll!',
+        this.character.accentHex,
+        3.2,
+      );
+    } else if (optionId === 'stash-armor') {
+      this.armor = Math.min(100, this.armor + 65);
+      soundEngine.playAction('pickup');
+      this.showBanner(this.language === 'ar' ? '+65 درع حماية من الدولاب' : '+65 Safehouse Armor', 'info', 2.2);
+    } else if (optionId === 'home-stash-rifle') {
+      this.setWeapon(this.activeWeapon === 'rifle' ? 'smg' : 'rifle');
+      soundEngine.playAction('pickup');
+      this.showBanner(this.language === 'ar' ? 'استلمت سلاحك من خزنة البيت!' : 'Equipped Weapon from Stash!', 'gold', 2.2);
+    } else if (optionId === 'buy-armor') {
+      this.armor = 100;
+      soundEngine.playAction('pickup');
+      this.showBanner(this.language === 'ar' ? 'درع كامل 100%!' : 'Full Armor 100%!', 'info', 2.4);
+      this.speak(
+        interior.name[this.language],
+        this.language === 'ar' ? 'درع أصلي ضد الرصاص يا بطل، خلي بالك من نفسك.' : 'Military grade Kevlar — stay sharp out there!',
+        '#f87171',
+        3.2,
+      );
+    } else if (optionId === 'buy-rpg-equip') {
+      this.armor = Math.min(100, this.armor + 50);
+      this.setWeapon('rpg');
+      soundEngine.playAction('pickup');
+      this.showBanner(this.language === 'ar' ? 'استلمت قاذف RPG + 50 درع!' : 'RPG Equipped + 50 Armor!', 'gold', 2.6);
+    } else if (optionId === 'hack-wanted') {
+      this.wantedStars = 0;
+      this.wantedHideTimer = 0;
+      soundEngine.setPoliceSiren(false);
+      soundEngine.playAction('mission');
+      this.showBanner(this.language === 'ar' ? 'هاك عبقرينو مسح كل نجوم الشرطة!' : 'Wanted Stars Cleared by Tech Hack!', 'success', 2.8);
+      this.speak(
+        this.getBuddyName(),
+        this.language === 'ar' ? 'شيلت ملفك من رادار الدورية! تقدر تمشي في أمان.' : 'Wiped you clean off police radar, partner!',
+        '#2dd4bf',
+        3.4,
+      );
+    } else if (optionId === 'tech-boost') {
+      this.health = Math.min(this.maxHealth, this.health + 80);
+      this.armor = Math.min(100, this.armor + 60);
+      soundEngine.playAction('pickup');
+      this.showBanner(this.language === 'ar' ? '+80 صحة و +60 درع!' : '+80 HP & +60 Armor!', 'success', 2.4);
+    } else if (optionId === 'cafe-coffee') {
+      this.health = Math.min(this.maxHealth, this.health + 45);
+      soundEngine.playAction('repair');
+      this.showBanner(this.language === 'ar' ? '+45 صحة · قهوة مظبوطة' : '+45 HP · Fresh Coffee', 'success', 2.2);
+    } else if (optionId === 'cafe-feast') {
+      this.health = this.maxHealth;
+      soundEngine.playAction('repair');
+      this.showBanner(this.language === 'ar' ? 'صحتك رجعت 100%!' : 'Full Health 100%!', 'success', 2.4);
+      this.speak(
+        this.getPartnerName(),
+        this.language === 'ar' ? 'ألف هنا وشفا يا نجم! أحلى قاعدة في كافيه أصيلة.' : 'Best meal on the Corniche — enjoy!',
+        '#ec4899',
+        3.2,
+      );
+    } else if (optionId === 'koshary-bowl') {
+      this.health = Math.min(this.maxHealth, this.health + 60);
+      soundEngine.playAction('repair');
+      this.showBanner(this.language === 'ar' ? '+60 صحة · كشري بالدقة!' : '+60 HP · Royal Koshary!', 'success', 2.2);
+    } else if (optionId === 'koshary-tagen') {
+      this.health = this.maxHealth;
+      this.armor = Math.min(100, this.armor + 25);
+      soundEngine.playAction('repair');
+      this.showBanner(this.language === 'ar' ? 'صحة 100% + 25 درع!' : 'Full Health + 25 Armor!', 'success', 2.4);
+      this.speak(
+        interior.name[this.language],
+        this.language === 'ar' ? 'أحلى طاجن لحمة من إيد السلطان، بالهنا!' : 'Piping hot tagen from the Sultan kitchen!',
+        '#fbbf24',
+        3.2,
+      );
+    }
+
+    this.triggerAutoSave();
+    this.emitHud();
+  }
+
   public handleInteractKey() {
+    const prompt = this.getActiveInteriorPrompt();
+    if (prompt && prompt.options.length > 0) {
+      this.executeShopOption(prompt.shopId, prompt.options[0].id);
+      return;
+    }
     if (this.tryBuyFood()) return;
     this.tryStartNearbyMission();
   }
@@ -998,6 +1265,12 @@ export class KtaGameEngine {
       this.stats.carsDriven = this.drivenIds.size;
     }
     this.drivenVehicle = best;
+    this.driveCamRelYaw = 0;
+    this.driveCamRecenterDelay = 0;
+    this.smoothedDriveCamYaw = best.yaw + Math.PI;
+    this.isAimingToggle = false;
+    this.rightMouseAiming = false;
+    this.touchAiming = false;
     this.playerRig.group.visible = false;
     if (this.buddyActive && this.buddyNpc) {
       this.buddyNpc.rig.group.visible = false;
@@ -1011,6 +1284,7 @@ export class KtaGameEngine {
     y: number,
     z: number,
     vx: number,
+    vy: number,
     vz: number,
     yaw: number,
     life: number,
@@ -1028,6 +1302,7 @@ export class KtaGameEngine {
     p.y = y;
     p.z = z;
     p.vx = vx;
+    p.vy = vy;
     p.vz = vz;
     p.life = life;
     p.damage = damage;
@@ -1051,16 +1326,24 @@ export class KtaGameEngine {
     }
 
     soundEngine.playWeaponFire(this.activeWeapon);
-    this.playerRig.rightArm.rotation.x = -1.45;
+    this.playerRig.rightArm.rotation.x = -1.48;
 
     const dmgMul = this.character.stats.damageMultiplier ?? 1.0;
+
+    // Face aimed target or camera crosshair direction before shooting
+    const camFwdYaw = this.cameraOrbitYaw + Math.PI;
+    if (this.aimTarget) {
+      this.playerYaw = Math.atan2(this.aimTarget.x - this.playerX, this.aimTarget.z - this.playerZ);
+    } else if (this.isAimActive() || this.mouseFiring || this.touchFiring) {
+      this.playerYaw = camFwdYaw;
+    }
 
     if (this.activeWeapon === 'melee') {
       this.actionCooldown = 0.36;
       for (const ped of this.peds) {
         if (ped.dead) continue;
         const d = Math.hypot(ped.x - this.playerX, ped.z - this.playerZ);
-        if (d < 2.6) {
+        if (d < 2.75) {
           this.damagePed(ped, Math.round(35 * dmgMul), Math.sin(this.playerYaw), Math.cos(this.playerYaw));
         }
       }
@@ -1082,11 +1365,11 @@ export class KtaGameEngine {
       Exclude<WeaponId, 'melee'>,
       { cd: number; speed: number; dmg: number; pellets: number; spread: number; color: number; explosive: boolean }
     > = {
-      pistol: { cd: 0.28, speed: 54, dmg: 26, pellets: 1, spread: 0.03, color: 0xfef08a, explosive: false },
-      smg: { cd: 0.1, speed: 56, dmg: 16, pellets: 1, spread: 0.08, color: 0xfbbf24, explosive: false },
-      shotgun: { cd: 0.65, speed: 48, dmg: 22, pellets: 5, spread: 0.24, color: 0xf97316, explosive: false },
-      rifle: { cd: 0.14, speed: 66, dmg: 24, pellets: 1, spread: 0.04, color: 0x38bdf8, explosive: false },
-      rpg: { cd: 1.05, speed: 35, dmg: 120, pellets: 1, spread: 0, color: 0xef4444, explosive: true },
+      pistol: { cd: 0.26, speed: 56, dmg: 26, pellets: 1, spread: 0.02, color: 0xfef08a, explosive: false },
+      smg: { cd: 0.1, speed: 58, dmg: 16, pellets: 1, spread: 0.06, color: 0xfbbf24, explosive: false },
+      shotgun: { cd: 0.62, speed: 50, dmg: 22, pellets: 5, spread: 0.2, color: 0xf97316, explosive: false },
+      rifle: { cd: 0.13, speed: 68, dmg: 24, pellets: 1, spread: 0.025, color: 0x38bdf8, explosive: false },
+      rpg: { cd: 1.05, speed: 36, dmg: 120, pellets: 1, spread: 0, color: 0xef4444, explosive: true },
     };
 
     const s = specs[this.activeWeapon];
@@ -1094,18 +1377,34 @@ export class KtaGameEngine {
     this.muzzleFlashTimer = 0.06;
     this.muzzleFlashMesh.visible = true;
 
+    const sy = this.playerY + 1.32;
     const sx = this.playerX + Math.sin(this.playerYaw) * 0.95;
     const sz = this.playerZ + Math.cos(this.playerYaw) * 0.95;
-    this.spawnBurst(sx, 1.32, sz, s.color, 3, 4);
+    this.spawnBurst(sx, sy, sz, s.color, 3, 4);
+
+    // Ballistic vertical pitch toward locked target or subtle camera pitch
+    let pitchSlope = -Math.sin(this.cameraPitch) * 0.35;
+    if (this.aimTarget) {
+      const dx = this.aimTarget.x - sx;
+      const dy = this.aimTarget.y - sy;
+      const dz = this.aimTarget.z - sz;
+      const horiz = Math.max(0.5, Math.hypot(dx, dz));
+      pitchSlope = dy / horiz;
+    }
+
+    const aimTightness = this.isAimActive() ? 0.35 : 1.0;
 
     for (let i = 0; i < s.pellets; i++) {
-      const yaw = this.playerYaw + (Math.random() - 0.5) * s.spread;
+      const yaw = this.playerYaw + (Math.random() - 0.5) * s.spread * aimTightness;
+      const horizSpeed = s.speed;
+      const vy = THREE.MathUtils.clamp(pitchSlope * horizSpeed, -18, 18);
       this.spawnPooledProjectile(
         sx,
-        1.32,
+        sy,
         sz,
-        Math.sin(yaw) * s.speed,
-        Math.cos(yaw) * s.speed,
+        Math.sin(yaw) * horizSpeed,
+        vy,
+        Math.cos(yaw) * horizSpeed,
         yaw,
         s.explosive ? 1.8 : 0.95,
         Math.round(s.dmg * dmgMul),
@@ -1579,15 +1878,17 @@ export class KtaGameEngine {
     this.wantedStars = 0;
     this.drivenVehicle = null;
     this.playerRig.group.visible = true;
-    this.playerX = -28;
+    this.playerX = -74;
     this.playerY = 0;
     this.playerZ = -48;
+    this.playerVx = 0;
     this.playerVy = 0;
+    this.playerVz = 0;
     this.playerRig.group.position.set(this.playerX, 0, this.playerZ);
     soundEngine.setPoliceSiren(false);
     this.speak(
       this.character.name[this.language],
-      this.language === 'ar' ? 'الحمد لله على السلامة... راجعين أقوى بكتير!' : 'Back on my feet. Nobody keeps me down.',
+      this.language === 'ar' ? 'الحمد لله على السلامة... راجعين أقوى بكتير قدام بيتنا!' : 'Back on my feet outside my safehouse!',
       this.character.accentHex,
       3.5,
     );
@@ -1734,7 +2035,14 @@ export class KtaGameEngine {
       if (this.subtitleTimer <= 0) this.subtitle = null;
     }
 
-    if (this.keys.has('KeyQ')) this.cameraOrbitYaw += 1.9 * dt;
+    if (this.keys.has('KeyQ')) {
+      if (this.drivenVehicle) {
+        this.driveCamRelYaw += 2.0 * dt;
+        this.driveCamRecenterDelay = 1.6;
+      } else {
+        this.cameraOrbitYaw += 1.9 * dt;
+      }
+    }
 
     if (
       (this.touchFiring || (this.mouseFiring && !this.pointerMoved)) &&
@@ -1745,11 +2053,14 @@ export class KtaGameEngine {
       this.triggerAction();
     }
 
+    this.updateAimTarget();
+
     if (!this.isWasted) {
       if (this.drivenVehicle) this.updateDrivenVehicle(dt);
       else this.updatePlayerOnFoot(dt);
     }
 
+    this.updateInteriorState(dt);
     this.updateTrafficAndPolice(dt);
     this.resolveVehicleToVehicleCollisions();
     this.updateBreakableProps(dt);
@@ -1787,6 +2098,137 @@ export class KtaGameEngine {
     }
   }
 
+  private updateAimTarget() {
+    if (this.drivenVehicle || this.isWasted) {
+      this.aimTarget = null;
+      return;
+    }
+
+    const aiming = this.isAimActive();
+    const maxRange = aiming ? 48 : 30;
+    const minDot = aiming ? 0.84 : 0.9;
+    const camFwdYaw = this.cameraOrbitYaw + Math.PI;
+    const fx = Math.sin(camFwdYaw);
+    const fz = Math.cos(camFwdYaw);
+
+    let bestScore = -9999;
+    let best: typeof this.aimTarget = null;
+
+    for (const ped of this.peds) {
+      if (ped.dead || ped.isPartner || ped.isBuddy) continue;
+      const dx = ped.x - this.playerX;
+      const dz = ped.z - this.playerZ;
+      const dist = Math.hypot(dx, dz);
+      if (dist < 0.8 || dist > maxRange) continue;
+      const dot = (dx * fx + dz * fz) / dist;
+      if (dot < minDot) continue;
+
+      const isPriority = ped.isHostile || ped.isPolice;
+      const score = (isPriority ? 140 : 40) + dot * 85 - dist * 1.3;
+      if (score > bestScore) {
+        bestScore = score;
+        best = {
+          x: ped.x,
+          y: 1.28,
+          z: ped.z,
+          label: ped.isPolice
+            ? this.language === 'ar'
+              ? 'شرطي'
+              : 'Police'
+            : ped.isHostile
+              ? this.language === 'ar'
+                ? 'عصابة'
+                : 'Gang'
+              : this.language === 'ar'
+                ? 'هدف'
+                : 'Target',
+          isEnemy: isPriority,
+        };
+      }
+    }
+
+    if (!best) {
+      for (const v of this.vehicles) {
+        if (v === this.drivenVehicle || v.exploded) continue;
+        const dx = v.x - this.playerX;
+        const dz = v.z - this.playerZ;
+        const dist = Math.hypot(dx, dz);
+        if (dist < 1.5 || dist > maxRange) continue;
+        const dot = (dx * fx + dz * fz) / dist;
+        if (dot < 0.93) continue;
+        const score = dot * 75 - dist * 1.4;
+        if (score > bestScore) {
+          bestScore = score;
+          best = { x: v.x, y: v.y + 0.9, z: v.z, label: v.name, isEnemy: v.isPolice };
+        }
+      }
+    }
+
+    this.aimTarget = best;
+  }
+
+  private updateInteriorState(dt: number) {
+    if (this.drivenVehicle) {
+      this.currentInterior = null;
+      return;
+    }
+
+    const px = this.playerX;
+    const pz = this.playerZ;
+    let found: EnterableInteriorResult | null = null;
+    for (const interior of this.city.interiors) {
+      if (
+        px >= interior.bounds.minX &&
+        px <= interior.bounds.maxX &&
+        pz >= interior.bounds.minZ &&
+        pz <= interior.bounds.maxZ
+      ) {
+        found = interior;
+        break;
+      }
+    }
+
+    if (found && found.id !== this.announcedInteriorId) {
+      this.announcedInteriorId = found.id;
+      if (found.isSafehouse) {
+        this.speak(
+          this.character.name[this.language],
+          this.language === 'ar'
+            ? 'نورت بيتك يا بطل! تقدر تستريح أو تجهز درعك وتحفظ لعبك من هنا.'
+            : 'Home sweet safehouse! Rest up, grab gear, or save your game.',
+          this.character.accentHex,
+          3.6,
+        );
+      } else {
+        this.speak(
+          found.name[this.language],
+          this.language === 'ar'
+            ? `أهلاً بيك في ${found.name.ar}! قرب من الكاونتر واختار طلبك.`
+            : `Welcome inside ${found.name.en}! Pick what you need at the counter.`,
+          '#fbbf24',
+          3.4,
+        );
+      }
+    } else if (!found) {
+      this.announcedInteriorId = null;
+    }
+    this.currentInterior = found;
+
+    // Animate shop vendor NPCs gently facing player when nearby
+    const elapsed = this.clock.elapsedTime;
+    for (const interior of this.city.interiors) {
+      if (!interior.vendorRig) continue;
+      const dist = Math.hypot(px - interior.interactPoint.x, pz - interior.interactPoint.z);
+      if (dist < 14) {
+        const worldYaw = Math.atan2(px - interior.interactPoint.x, pz - interior.interactPoint.z);
+        interior.vendorRig.group.rotation.y = worldYaw - interior.group.rotation.y;
+        interior.vendorRig.head.rotation.y = Math.sin(elapsed * 2.2) * 0.14;
+        interior.vendorRig.rightArm.rotation.x = -0.35 + Math.sin(elapsed * 3.0) * 0.1;
+      }
+    }
+    void dt;
+  }
+
   private updateLodAndFrustumCulling() {
     this.camera.updateMatrixWorld();
     _projScreenMatrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
@@ -1820,10 +2262,14 @@ export class KtaGameEngine {
     if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) moveX -= 1;
     if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) moveX += 1;
 
-    const sprinting = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') || this.touchInput.boost;
-    const baseSpeed = (sprinting ? 11.5 : 6.8) * this.character.stats.speedMultiplier;
+    const aiming = this.isAimActive();
+    const sprinting = !aiming && (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') || this.touchInput.boost);
+    const baseSpeed = (aiming ? 4.4 : sprinting ? 11.6 : 6.9) * this.character.stats.speedMultiplier;
 
     const len = Math.hypot(moveX, moveZ);
+    let targetVx = 0;
+    let targetVz = 0;
+
     if (len > 0.05) {
       const nx = moveX / len;
       const nz = moveZ / len;
@@ -1831,42 +2277,80 @@ export class KtaGameEngine {
       const cos = Math.cos(this.cameraOrbitYaw);
       const wx = nx * cos + nz * sin;
       const wz = -nx * sin + nz * cos;
+      targetVx = wx * baseSpeed;
+      targetVz = wz * baseSpeed;
 
-      const targetYaw = Math.atan2(wx, wz);
+      if (!aiming && !this.mouseFiring && !this.touchFiring) {
+        const targetYaw = Math.atan2(wx, wz);
+        let diff = targetYaw - this.playerYaw;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        this.playerYaw += diff * Math.min(1, dt * 13);
+      }
+    }
+
+    if (aiming || this.mouseFiring || this.touchFiring) {
+      const targetYaw = this.aimTarget
+        ? Math.atan2(this.aimTarget.x - this.playerX, this.aimTarget.z - this.playerZ)
+        : this.cameraOrbitYaw + Math.PI;
       let diff = targetYaw - this.playerYaw;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
-      this.playerYaw += diff * Math.min(1, dt * 13);
+      this.playerYaw += diff * Math.min(1, dt * 16);
+    }
 
+    // Smooth inertial velocity damping for grounded natural acceleration/stopping
+    const dampRate = len > 0.05 ? 12.5 : 11.0;
+    this.playerVx = THREE.MathUtils.damp(this.playerVx, targetVx, dampRate, dt);
+    this.playerVz = THREE.MathUtils.damp(this.playerVz, targetVz, dampRate, dt);
+
+    const actualSpeed = Math.hypot(this.playerVx, this.playerVz);
+    if (actualSpeed > 0.08) {
       const col = this.resolveBuildingCollision(
-        this.playerX + wx * baseSpeed * dt,
-        this.playerZ + wz * baseSpeed * dt,
-        0.55,
+        this.playerX + this.playerVx * dt,
+        this.playerZ + this.playerVz * dt,
+        0.52,
         this.playerY,
       );
+      if (col.hit) {
+        this.playerVx *= 0.35;
+        this.playerVz *= 0.35;
+      }
       this.playerX = col.x;
       this.playerZ = col.z;
 
-      this.walkPhase += dt * (sprinting ? 14 : 9);
-      const swing = Math.sin(this.walkPhase) * 0.72;
+      this.walkPhase += dt * Math.max(5.5, actualSpeed * 1.28);
+      const amp = THREE.MathUtils.clamp(actualSpeed / 9.5, 0.28, 0.78);
+      const swing = Math.sin(this.walkPhase) * amp;
       this.playerRig.leftLeg.rotation.x = swing;
       this.playerRig.rightLeg.rotation.x = -swing;
-      this.playerRig.leftArm.rotation.x = -swing * 0.75;
-      this.playerRig.rightArm.rotation.x = THREE.MathUtils.lerp(this.playerRig.rightArm.rotation.x, swing * 0.4, 0.25);
+      this.playerRig.leftArm.rotation.x = -swing * 0.72;
+      this.playerRig.rightArm.rotation.x = aiming
+        ? -1.42
+        : THREE.MathUtils.lerp(this.playerRig.rightArm.rotation.x, swing * 0.38, 0.25);
     } else {
-      this.playerRig.leftLeg.rotation.x = THREE.MathUtils.lerp(this.playerRig.leftLeg.rotation.x, 0, 0.2);
-      this.playerRig.rightLeg.rotation.x = THREE.MathUtils.lerp(this.playerRig.rightLeg.rotation.x, 0, 0.2);
-      this.playerRig.leftArm.rotation.x = THREE.MathUtils.lerp(this.playerRig.leftArm.rotation.x, 0, 0.2);
-      this.playerRig.rightArm.rotation.x = THREE.MathUtils.lerp(this.playerRig.rightArm.rotation.x, -0.25, 0.15);
+      const idleBreath = Math.sin(this.clock.elapsedTime * 2.4) * 0.03;
+      this.playerRig.leftLeg.rotation.x = THREE.MathUtils.lerp(this.playerRig.leftLeg.rotation.x, 0, 0.22);
+      this.playerRig.rightLeg.rotation.x = THREE.MathUtils.lerp(this.playerRig.rightLeg.rotation.x, 0, 0.22);
+      this.playerRig.leftArm.rotation.x = THREE.MathUtils.lerp(this.playerRig.leftArm.rotation.x, idleBreath, 0.18);
+      this.playerRig.rightArm.rotation.x = THREE.MathUtils.lerp(
+        this.playerRig.rightArm.rotation.x,
+        aiming ? -1.42 : -0.22 + idleBreath,
+        0.2,
+      );
     }
 
-    const groundY = this.getRampHeightAt(this.playerX, this.playerZ);
-    if (this.keys.has('Space') && this.playerY <= groundY + 0.05) {
+    const interiorFloorY = this.currentInterior ? 0.34 : 0;
+    const groundY = Math.max(interiorFloorY, this.getRampHeightAt(this.playerX, this.playerZ));
+    if (this.keys.has('Space') && this.playerY <= groundY + 0.06) {
       this.playerVy = 8.0;
     }
     this.playerVy -= 24 * dt;
     this.playerY += this.playerVy * dt;
     if (this.playerY <= groundY) {
+      if (this.playerVy < -7.5) {
+        this.spawnBurst(this.playerX, groundY + 0.1, this.playerZ, 0xd6d3d1, 4, 2.5, 4);
+      }
       this.playerY = groundY;
       this.playerVy = 0;
     }
@@ -1890,8 +2374,9 @@ export class KtaGameEngine {
     const topSpeed = v.maxSpeed * this.character.stats.speedMultiplier * (nitro ? 1.18 : 1.0);
     const accel = v.accel * (nitro ? 1.25 : 1.0);
 
+    v.prevSpeed = v.speed;
     if (throttle > 0) v.speed = Math.min(topSpeed, v.speed + accel * dt);
-    else if (throttle < 0) v.speed = Math.max(-topSpeed * 0.4, v.speed - accel * 1.1 * dt);
+    else if (throttle < 0) v.speed = Math.max(-topSpeed * 0.42, v.speed - accel * 1.15 * dt);
     else v.speed *= Math.pow(0.35, dt);
 
     if (handbrake) v.speed *= Math.pow(0.22, dt);
@@ -1935,11 +2420,14 @@ export class KtaGameEngine {
       v.speed *= 0.4;
     }
 
-    // Drift tire smoke
+    // Drift tire smoke & Nitro exhaust sparks
     this.driftSmokeTimer -= dt;
     if (this.driftSmokeTimer <= 0 && ((handbrake && Math.abs(v.speed) > 9) || (Math.abs(steer) > 0.6 && Math.abs(v.speed) > 17))) {
       this.driftSmokeTimer = 0.08;
       this.spawnBurst(v.x - Math.sin(v.yaw) * 1.6, v.y + 0.25, v.z - Math.cos(v.yaw) * 1.6, 0xd1d5db, 2, 2.5, 2);
+    } else if (this.driftSmokeTimer <= 0 && nitro && Math.abs(v.speed) > 10) {
+      this.driftSmokeTimer = 0.09;
+      this.spawnBurst(v.x - Math.sin(v.yaw) * 2.1, v.y + 0.35, v.z - Math.cos(v.yaw) * 2.1, 0x38bdf8, 1, 2.0, 0);
     }
 
     // Heavier grounded gravity (38 m/s^2)
@@ -1970,10 +2458,20 @@ export class KtaGameEngine {
       this.airTime += dt;
     }
 
+    // Realistic suspension pitch (squat/dive) & corner body roll
+    const speedDelta = (v.speed - v.prevSpeed) / Math.max(0.01, dt);
+    const targetPitch = v.y > 0.25 ? -v.vy * 0.022 : THREE.MathUtils.clamp(-speedDelta * 0.0022, -0.045, 0.055);
+    const targetRoll =
+      v.kind === 'bike'
+        ? -steer * 0.34 * Math.min(1, Math.abs(v.speed) / 14)
+        : steer * 0.055 * Math.min(1, Math.abs(v.speed) / 16);
+    v.chassisPitch = THREE.MathUtils.damp(v.chassisPitch, targetPitch, 9, dt);
+    v.chassisRoll = THREE.MathUtils.damp(v.chassisRoll, targetRoll, 9, dt);
+
     v.rig.group.position.set(v.x, v.y, v.z);
     v.rig.group.rotation.y = v.yaw;
-    v.rig.group.rotation.x = v.y > 0.25 ? -v.vy * 0.02 : 0;
-    v.rig.group.rotation.z = v.kind === 'bike' ? -steer * 0.32 * Math.min(1, Math.abs(v.speed) / 14) : 0;
+    v.rig.group.rotation.x = v.chassisPitch;
+    v.rig.group.rotation.z = v.chassisRoll;
 
     v.rig.wheels.forEach((w) => (w.rotation.x += v.speed * dt * 1.8));
     v.rig.frontSteerPivots.forEach((p) => (p.rotation.y = steer * 0.42));
@@ -2202,6 +2700,7 @@ export class KtaGameEngine {
           1.32,
           buddy.z + Math.cos(aimYaw) * 0.85,
           Math.sin(aimYaw) * 52,
+          0,
           Math.cos(aimYaw) * 52,
           aimYaw,
           0.95,
@@ -2280,6 +2779,7 @@ export class KtaGameEngine {
             1.32,
             ped.z,
             Math.sin(targetYaw) * 34,
+            0,
             Math.cos(targetYaw) * 34,
             targetYaw,
             1.15,
@@ -2354,11 +2854,12 @@ export class KtaGameEngine {
 
       p.life -= dt;
       p.x += p.vx * dt;
+      p.y += p.vy * dt;
       p.z += p.vz * dt;
       p.mesh.position.set(p.x, p.y, p.z);
 
-      let hit = p.life <= 0;
-      const wallCol = this.resolveBuildingCollision(p.x, p.z, 0.15);
+      let hit = p.life <= 0 || p.y <= 0.08;
+      const wallCol = this.resolveBuildingCollision(p.x, p.z, 0.15, p.y);
       if (wallCol.hit) hit = true;
 
       if (!hit && p.fromEnemy) {
@@ -2557,22 +3058,92 @@ export class KtaGameEngine {
     const pz = this.getPlayerPosZ();
 
     const inCar = Boolean(this.drivenVehicle);
-    const speedRatio = this.drivenVehicle ? Math.min(1, Math.abs(this.drivenVehicle.speed) / 34) : 0;
-    const targetFov = inCar ? 64 + speedRatio * 12 : 60;
-    this.camera.fov = THREE.MathUtils.damp(this.camera.fov, targetFov, 5, dt);
+
+    if (inCar && this.drivenVehicle) {
+      const v = this.drivenVehicle;
+      const speedRatio = Math.min(1, Math.abs(v.speed) / 34);
+
+      if (!this.draggingCam) {
+        if (this.driveCamRecenterDelay > 0) {
+          this.driveCamRecenterDelay -= dt;
+        } else if (Math.abs(v.speed) > 1.2) {
+          this.driveCamRelYaw = THREE.MathUtils.damp(this.driveCamRelYaw, 0, 2.8, dt);
+        }
+      }
+
+      if (this.driveCamMode === 'hood') {
+        const targetFov = 72 + speedRatio * 10;
+        this.camera.fov = THREE.MathUtils.damp(this.camera.fov, targetFov, 6, dt);
+        this.camera.updateProjectionMatrix();
+
+        const hoodDist = v.kind === 'bike' ? 0.25 : 0.65;
+        const hoodY = py + (v.kind === 'bike' ? 1.55 : 1.48);
+        _vec3A.set(px + Math.sin(v.yaw) * hoodDist, hoodY, pz + Math.cos(v.yaw) * hoodDist);
+        this.camera.position.lerp(_vec3A, 1 - Math.exp(-22 * dt));
+
+        const lookYaw = v.yaw - this.driveCamRelYaw * 0.45;
+        _vec3B.set(
+          px + Math.sin(lookYaw) * 24,
+          hoodY - Math.sin(this.cameraPitch) * 3.5 + 0.15,
+          pz + Math.cos(lookYaw) * 24,
+        );
+        this.camera.lookAt(_vec3B);
+        return;
+      }
+
+      const targetDriveYaw = v.yaw + Math.PI + this.driveCamRelYaw;
+      let yawDiff = targetDriveYaw - this.smoothedDriveCamYaw;
+      while (yawDiff > Math.PI) yawDiff -= Math.PI * 2;
+      while (yawDiff < -Math.PI) yawDiff += Math.PI * 2;
+      this.smoothedDriveCamYaw += yawDiff * (1 - Math.exp(-(this.draggingCam ? 18 : 7.5) * dt));
+
+      const isWide = this.driveCamMode === 'wide';
+      const targetFov = (isWide ? 72 : 64) + speedRatio * 10;
+      this.camera.fov = THREE.MathUtils.damp(this.camera.fov, targetFov, 5, dt);
+      this.camera.updateProjectionMatrix();
+
+      const dist = (isWide ? 12.6 : 8.9) + speedRatio * 1.8;
+      const height = isWide ? 5.1 : 3.45;
+      const desiredX = px + Math.sin(this.smoothedDriveCamYaw) * dist;
+      const desiredZ = pz + Math.cos(this.smoothedDriveCamYaw) * dist;
+      const desiredY = py + height + Math.sin(this.cameraPitch) * 1.9;
+
+      _vec3A.set(desiredX, desiredY, desiredZ);
+      this.camera.position.lerp(_vec3A, 1 - Math.exp(-10 * dt));
+      _vec3B.set(px, py + 1.15, pz);
+      this.camera.lookAt(_vec3B);
+      return;
+    }
+
+    // On-Foot Camera (Over-the-shoulder ADS aiming + Indoor containment!)
+    const aiming = this.isAimActive();
+    const indoors = Boolean(this.currentInterior);
+    const targetFov = aiming ? 46 : indoors ? 56 : 60;
+    this.camera.fov = THREE.MathUtils.damp(this.camera.fov, targetFov, 8, dt);
     this.camera.updateProjectionMatrix();
 
-    const dist = inCar ? 9.4 + speedRatio * 1.5 : 5.6;
-    const height = inCar ? 3.9 : 2.75;
+    const dist = indoors ? (aiming ? 2.4 : 3.1) : aiming ? 3.2 : 5.4;
+    const height = indoors ? 1.85 : aiming ? 1.78 : 2.65;
+    const rightX = Math.cos(this.cameraOrbitYaw);
+    const rightZ = -Math.sin(this.cameraOrbitYaw);
+    const shoulderOffset = aiming ? 0.62 : 0.22;
 
-    const camYaw = inCar && !this.draggingCam ? this.drivenVehicle!.yaw + Math.PI + this.cameraOrbitYaw * 0.35 : this.cameraOrbitYaw;
-    const desiredX = px + Math.sin(camYaw) * dist;
-    const desiredZ = pz + Math.cos(camYaw) * dist;
-    const desiredY = py + height + Math.sin(this.cameraPitch) * 1.8;
+    let desiredX = px + Math.sin(this.cameraOrbitYaw) * dist + rightX * shoulderOffset;
+    let desiredZ = pz + Math.cos(this.cameraOrbitYaw) * dist + rightZ * shoulderOffset;
+    let desiredY = py + height + Math.sin(this.cameraPitch) * (aiming ? 1.3 : 1.8);
+
+    if (this.currentInterior) {
+      const b = this.currentInterior.bounds;
+      desiredX = THREE.MathUtils.clamp(desiredX, b.minX + 0.55, b.maxX - 0.55);
+      desiredZ = THREE.MathUtils.clamp(desiredZ, b.minZ + 0.55, b.maxZ - 0.55);
+      desiredY = THREE.MathUtils.clamp(desiredY, 1.3, 4.05);
+    }
 
     _vec3A.set(desiredX, desiredY, desiredZ);
-    this.camera.position.lerp(_vec3A, 1 - Math.exp(-8 * dt));
-    _vec3B.set(px, py + (inCar ? 1.1 : 1.35), pz);
+    this.camera.position.lerp(_vec3A, 1 - Math.exp(-(aiming ? 15 : 10) * dt));
+
+    const lookHeight = aiming ? 1.48 : 1.38;
+    _vec3B.set(px + rightX * shoulderOffset, py + lookHeight, pz + rightZ * shoulderOffset);
     this.camera.lookAt(_vec3B);
   }
 
@@ -2590,8 +3161,10 @@ export class KtaGameEngine {
       }
     }
 
+    const interiorPrompt = this.getActiveInteriorPrompt();
+
     let nearbyRestaurantPrompt: HudSnapshot['nearbyRestaurantPrompt'] = null;
-    if (!this.drivenVehicle) {
+    if (!this.drivenVehicle && !interiorPrompt) {
       for (const r of this.city.restaurants) {
         if (Math.hypot(r.x - px, r.z - pz) < 3.4) {
           nearbyRestaurantPrompt = { name: r.name, cost: r.cost, heal: r.heal };
@@ -2627,6 +3200,14 @@ export class KtaGameEngine {
     if (this.buddyNpc && !this.drivenVehicle) {
       blips.push({ x: this.buddyNpc.x, z: this.buddyNpc.z, type: 'buddy' });
     }
+    this.city.interiors.forEach((interior) => {
+      blips.push({
+        x: interior.doorSpot.x,
+        z: interior.doorSpot.z,
+        type: interior.isSafehouse ? 'house' : 'shop',
+      });
+    });
+    this.city.garagePads.forEach((g) => blips.push({ x: g.x, z: g.z, type: 'shop' }));
     this.city.restaurants.forEach((r) => blips.push({ x: r.x, z: r.z, type: 'food' }));
     this.city.pickups.forEach((pk) => {
       if (pk.cooldown <= 0) blips.push({ x: pk.x, z: pk.z, type: 'pickup' });
@@ -2663,6 +3244,12 @@ export class KtaGameEngine {
       availableMissionPrompt,
       nearbyRestaurantPrompt,
       nearbyVehiclePrompt,
+      insideBuildingName: this.currentInterior?.name ?? null,
+      interiorPrompt,
+      aimLocked: Boolean(this.aimTarget),
+      aimTargetName: this.aimTarget?.label ?? null,
+      isAiming: this.isAimActive(),
+      driveCamMode: this.driveCamMode,
       bannerMessage: this.bannerMessage,
       subtitle: this.subtitle,
       playerX: px,
@@ -2686,6 +3273,7 @@ export class KtaGameEngine {
     window.removeEventListener('pointermove', this.handlePointerMove);
     window.removeEventListener('pointerup', this.handlePointerUp);
     this.renderer.domElement.removeEventListener('pointerdown', this.handlePointerDown);
+    this.renderer.domElement.removeEventListener('contextmenu', this.handleContextMenu);
     this.renderer.domElement.removeEventListener('webglcontextlost', this.handleContextLost);
     soundEngine.stopEngine();
     soundEngine.setPoliceSiren(false);

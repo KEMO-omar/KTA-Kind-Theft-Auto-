@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { ArrowUp, Car, Crosshair, Flame } from 'lucide-react';
+import { ArrowUp, Camera, Car, Crosshair, Eye, Flame } from 'lucide-react';
 import { HudSnapshot, Language } from '../types/game';
 import { STRINGS } from '../data/i18n';
 
@@ -10,6 +10,8 @@ interface TouchControlsProps {
   onFire: (firing: boolean) => void;
   onJumpOrDrift: (active: boolean) => void;
   onToggleVehicle: () => void;
+  onToggleAim: () => void;
+  onCycleDriveCam: () => void;
 }
 
 export const TouchControls: React.FC<TouchControlsProps> = ({
@@ -19,6 +21,8 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
   onFire,
   onJumpOrDrift,
   onToggleVehicle,
+  onToggleAim,
+  onCycleDriveCam,
 }) => {
   const t = STRINGS[language];
   const stickRef = useRef<HTMLDivElement | null>(null);
@@ -61,7 +65,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
       dir="ltr"
       className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex items-end justify-between px-3 pb-3 sm:px-5 sm:pb-5"
     >
-      {/* Bottom-Left Virtual Analog Joystick (clear of top-left minimap and bottom-center weapon switcher) */}
+      {/* Bottom-Left Virtual Analog Joystick */}
       <div className="pointer-events-auto flex flex-col items-center">
         <div
           ref={stickRef}
@@ -93,93 +97,125 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
         </div>
       </div>
 
-      {/* Bottom-Right Compact 2x2 Action Pad */}
-      <div className="pointer-events-auto grid grid-cols-2 gap-2 touch-none select-none">
-        <button
-          type="button"
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            setBoosting(true);
-            onMove(stickVectorRef.current.x, stickVectorRef.current.y, true);
-          }}
-          onPointerUp={(e) => {
-            e.stopPropagation();
-            setBoosting(false);
-            onMove(stickVectorRef.current.x, stickVectorRef.current.y, false);
-          }}
-          onPointerCancel={() => setBoosting(false)}
-          className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full border text-[10px] sm:text-[11px] font-bold flex flex-col items-center justify-center ${
-            boosting
-              ? 'bg-amber-500 text-neutral-950 border-white'
-              : 'bg-neutral-950/85 text-amber-300 border-white/20'
-          }`}
-        >
-          <Flame className="w-4 h-4" />
-          <span>{t.nitroBtn}</span>
-        </button>
-
-        <button
-          type="button"
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            onToggleVehicle();
-          }}
-          className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-neutral-950/85 active:bg-sky-500 active:text-neutral-950 border border-white/20 text-sky-300 text-[10px] sm:text-[11px] font-bold flex flex-col items-center justify-center"
-        >
-          <Car className="w-4 h-4" />
-          <span>{hud.inVehicle ? t.exitBtn : t.carBtn}</span>
-        </button>
-
-        <button
-          type="button"
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            onJumpOrDrift(true);
-          }}
-          onPointerUp={(e) => {
-            e.stopPropagation();
-            onJumpOrDrift(false);
-          }}
-          onPointerCancel={() => onJumpOrDrift(false)}
-          className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-neutral-950/85 active:bg-teal-400 active:text-neutral-950 border border-white/20 text-teal-300 text-[10px] sm:text-[11px] font-bold flex flex-col items-center justify-center"
-        >
-          <ArrowUp className="w-4 h-4" />
-          <span>{hud.inVehicle ? t.driftBtn : t.jumpBtn}</span>
-        </button>
-
-        {!hud.inVehicle ? (
+      {/* Bottom-Right Action Pad */}
+      <div className="pointer-events-auto flex flex-col items-end gap-2 touch-none select-none">
+        {hud.inVehicle ? (
           <button
             type="button"
             onPointerDown={(e) => {
               e.stopPropagation();
-              onFire(true);
+              onCycleDriveCam();
             }}
-            onPointerUp={(e) => {
-              e.stopPropagation();
-              onFire(false);
-            }}
-            onPointerCancel={() => onFire(false)}
-            className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-rose-600 active:bg-rose-400 border-2 border-white/40 text-white text-xs font-bold flex flex-col items-center justify-center shadow-lg"
+            className="px-3 py-1.5 rounded-lg bg-neutral-950/90 active:bg-amber-500 active:text-neutral-950 border border-white/20 text-amber-300 text-[11px] font-bold flex items-center gap-1.5"
           >
-            <Crosshair className="w-4 h-4 sm:w-5 sm:h-5" />
-            <span>{t.fireBtn}</span>
+            <Camera className="w-3.5 h-3.5" />
+            <span>{t.camBtn}</span>
           </button>
         ) : (
           <button
             type="button"
             onPointerDown={(e) => {
               e.stopPropagation();
-              onFire(true);
+              onToggleAim();
+            }}
+            className={`px-3 py-1.5 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 ${
+              hud.isAiming
+                ? 'bg-amber-500 text-neutral-950 border-white'
+                : 'bg-neutral-950/90 text-teal-300 border-white/20'
+            }`}
+          >
+            <Eye className="w-3.5 h-3.5" />
+            <span>{t.aimBtn}</span>
+          </button>
+        )}
+
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              setBoosting(true);
+              onMove(stickVectorRef.current.x, stickVectorRef.current.y, true);
             }}
             onPointerUp={(e) => {
               e.stopPropagation();
-              onFire(false);
+              setBoosting(false);
+              onMove(stickVectorRef.current.x, stickVectorRef.current.y, false);
             }}
-            className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-amber-500 active:bg-amber-300 border-2 border-white/40 text-neutral-950 text-xs font-bold flex flex-col items-center justify-center shadow-lg"
+            onPointerCancel={() => setBoosting(false)}
+            className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full border text-[10px] sm:text-[11px] font-bold flex flex-col items-center justify-center ${
+              boosting
+                ? 'bg-amber-500 text-neutral-950 border-white'
+                : 'bg-neutral-950/85 text-amber-300 border-white/20'
+            }`}
           >
-            <span>{t.hornBtn}</span>
+            <Flame className="w-4 h-4" />
+            <span>{t.nitroBtn}</span>
           </button>
-        )}
+
+          <button
+            type="button"
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              onToggleVehicle();
+            }}
+            className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-neutral-950/85 active:bg-sky-500 active:text-neutral-950 border border-white/20 text-sky-300 text-[10px] sm:text-[11px] font-bold flex flex-col items-center justify-center"
+          >
+            <Car className="w-4 h-4" />
+            <span>{hud.inVehicle ? t.exitBtn : t.carBtn}</span>
+          </button>
+
+          <button
+            type="button"
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              onJumpOrDrift(true);
+            }}
+            onPointerUp={(e) => {
+              e.stopPropagation();
+              onJumpOrDrift(false);
+            }}
+            onPointerCancel={() => onJumpOrDrift(false)}
+            className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-neutral-950/85 active:bg-teal-400 active:text-neutral-950 border border-white/20 text-teal-300 text-[10px] sm:text-[11px] font-bold flex flex-col items-center justify-center"
+          >
+            <ArrowUp className="w-4 h-4" />
+            <span>{hud.inVehicle ? t.driftBtn : t.jumpBtn}</span>
+          </button>
+
+          {!hud.inVehicle ? (
+            <button
+              type="button"
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                onFire(true);
+              }}
+              onPointerUp={(e) => {
+                e.stopPropagation();
+                onFire(false);
+              }}
+              onPointerCancel={() => onFire(false)}
+              className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-rose-600 active:bg-rose-400 border-2 border-white/40 text-white text-xs font-bold flex flex-col items-center justify-center shadow-lg"
+            >
+              <Crosshair className="w-4 h-4 sm:w-5 sm:h-5" />
+              <span>{t.fireBtn}</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                onFire(true);
+              }}
+              onPointerUp={(e) => {
+                e.stopPropagation();
+                onFire(false);
+              }}
+              className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-amber-500 active:bg-amber-300 border-2 border-white/40 text-neutral-950 text-xs font-bold flex flex-col items-center justify-center shadow-lg"
+            >
+              <span>{t.hornBtn}</span>
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

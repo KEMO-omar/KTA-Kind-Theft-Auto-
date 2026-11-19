@@ -8,7 +8,13 @@ export type BrandAssetKey =
   | 'eidBanner'
   | 'festiveBanner'
   | 'logoA'
-  | 'logoE';
+  | 'logoE'
+  | 'alarabiyaAd'
+  | 'rowadAd'
+  | 'fbBanner1'
+  | 'amazonPoster'
+  | 'sisiPortrait'
+  | 'fbBanner2';
 
 export interface BrandAssetSlot {
   key: BrandAssetKey;
@@ -366,6 +372,37 @@ function compressImageToCanvas(img: HTMLImageElement): HTMLCanvasElement {
   return canvas;
 }
 
+export function makeShopSignTexture(
+  titleAr: string,
+  subtitleAr: string,
+  bgHex: string,
+  accentHex: string,
+): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 128;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = bgHex;
+  ctx.fillRect(0, 0, 512, 128);
+  ctx.strokeStyle = accentHex;
+  ctx.lineWidth = 6;
+  ctx.strokeRect(5, 5, 502, 118);
+
+  ctx.fillStyle = accentHex;
+  ctx.font = 'bold 38px Cairo, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(titleAr, 256, 58);
+
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = 'bold 21px Cairo, sans-serif';
+  ctx.fillText(subtitleAr, 256, 98);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 export function createCityTextures(renderer: THREE.WebGLRenderer): CityTextures {
   const aniso = Math.min(4, renderer.capabilities.getMaxAnisotropy() || 1);
   let disposed = false;
@@ -479,6 +516,66 @@ export function createCityTextures(renderer: THREE.WebGLRenderer): CityTextures 
       fallbackTitle: 'E',
       fallbackSub: 'KAREEM',
       bg: '#09090b',
+      accent: '#14b8a6',
+    },
+    {
+      key: 'alarabiyaAd',
+      url: 'https://vid.alarabiya.net/images/2026/06/21/74979adc-730f-4b3f-a3b2-4fa116962d43/74979adc-730f-4b3f-a3b2-4fa116962d43_16x9_1200x676.jpeg?width=1120',
+      defaultAspect: 1.77,
+      isTransparent: false,
+      fallbackTitle: 'أخبار الكورنيش',
+      fallbackSub: 'تغطية حصرية على مدار الساعة',
+      bg: '#1e1b4b',
+      accent: '#f59e0b',
+    },
+    {
+      key: 'rowadAd',
+      url: 'https://www.rowadalaamal.com/wp-content/uploads/2020/09/web-in4-23-1536x769.jpg',
+      defaultAspect: 2.0,
+      isTransparent: false,
+      fallbackTitle: 'رواد الأعمال',
+      fallbackSub: 'استثمر في قلب المدينة',
+      bg: '#0f172a',
+      accent: '#38bdf8',
+    },
+    {
+      key: 'fbBanner1',
+      url: 'https://scontent.fcai19-1.fna.fbcdn.net/v/t39.30808-6/489273120_963976535891244_2210292476621953698_n.jpg?stp=dst-jpg_tt6&cstp=mx1600x2000&ctp=s960x960&_nc_cat=107&_nc_map=urlgen_bucketless&ccb=1-7&_nc_sid=127cfc&_nc_eui2=AeFyeqld7QSzWpPsTCO8SLsbnY9M_KZZXRedj0z8plldF6ypmi2wv8XXw3oFbFed5ohfPg8bf3QN1hlgqRWPjJXM&_nc_ohc=E-FnGWHtb_cQ7kNvwEnY3iJ&_nc_oc=AdrWgp0LHjb_WEEgG8AbH24zXHAmZAINo_ex_d-5SR06f24uOsqMmgrGB59OuYfeIq0&_nc_zt=23&_nc_ht=scontent.fcai19-1.fna&_nc_gid=arB3o-vEJg63g2vtHrwGUQ&_nc_ss=7b2a8&oh=00_AQT0qMNuu9VthrYRJdpx1c809DebFLlJV7YNm1MuNSXzhQ&oe=6B048B44',
+      defaultAspect: 1.0,
+      isTransparent: false,
+      fallbackTitle: 'عروض المدينة',
+      fallbackSub: 'أقوى تخفيضات الشهر',
+      bg: '#18181b',
+      accent: '#f59e0b',
+    },
+    {
+      key: 'amazonPoster',
+      url: 'https://m.media-amazon.com/images/I/51awVZzwW6L._AC_AIweblab1392912,T4_FMavif_SF385,879_PQ70_.jpg?aicid=detailPage-mediaBlock',
+      defaultAspect: 0.72,
+      isTransparent: false,
+      fallbackTitle: 'متجر الإلكترونيات',
+      fallbackSub: 'أحدث الأجهزة والإكسسوارات',
+      bg: '#0c4a6e',
+      accent: '#facc15',
+    },
+    {
+      key: 'sisiPortrait',
+      url: 'https://upload.wikimedia.org/wikipedia/commons/a/a2/Abdel_Fattah_el-Sisi_%282%29_-_2023.jpg?utm_source=ar.wikipedia.org&utm_campaign=parser&utm_content=thumbnail_unscaled',
+      defaultAspect: 0.8,
+      isTransparent: false,
+      fallbackTitle: 'تحيا مصر',
+      fallbackSub: 'الجمهورية الجديدة',
+      bg: '#111827',
+      accent: '#facc15',
+    },
+    {
+      key: 'fbBanner2',
+      url: 'https://scontent.fcai19-1.fna.fbcdn.net/v/t39.30808-6/713644456_122129066667096634_3056601059212660685_n.jpg?stp=dst-jpg_tt6&cstp=mx1080x1350&ctp=s1080x1350&_nc_cat=109&_nc_map=urlgen_bucketless&ccb=1-7&_nc_sid=833d8c&_nc_eui2=AeEXAXshY6iov-HvPLl0pOd4MAB5fdxsEL0wAHl93GwQvWWXYtODEJ8HxWS8hAIHKCWV4R76kU8kgkuDEqovFRTE&_nc_ohc=AzzaCX86SvIQ7kNvwF5rs2-&_nc_oc=AdqQA_yLAUvZE7dbd4kngimQAck_NcSZaAhNVuk5TEVfex_hXioO4o6Yg5SpcDNDnHc&_nc_zt=23&_nc_ht=scontent.fcai19-1.fna&_nc_gid=G3AJBg_Rfuv8zsn_RVkA3g&_nc_ss=7b2a8&oh=00_AQQKaPH98lwJkf6WhD7kG2xXD10b6k4LWr7kZ13Ni6umjw&oe=6B04800C',
+      defaultAspect: 0.8,
+      isTransparent: false,
+      fallbackTitle: 'إعلانات وسط البلد',
+      fallbackSub: 'كل اللي تحتاجه في مكان واحد',
+      bg: '#312e81',
       accent: '#14b8a6',
     },
   ];
